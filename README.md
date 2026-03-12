@@ -41,6 +41,64 @@ pip install -e ".[dev]"
 pytest
 ```
 
+#### VS Code development environment
+
+The repo ships a full VS Code dev environment that symlinks the source tree
+directly into Blender, so every edit is live without reinstalling the addon.
+
+**Prerequisites**
+
+- Blender (4.0 or later) available on `PATH`
+- `bexpeng` installed in Blender at least once (Edit → Preferences → Add-ons → Install…)  
+- `debugpy` available in Blender's Python:
+  ```bash
+  /path/to/blender/4.x/python/bin/python3 -m pip install debugpy
+  ```
+- [Bonsai BIM](https://bonsaibim.org/) extension (optional, needed for `bim.restart_blender`)
+
+**One-time setup**
+
+Run the VS Code task **"Configure bexpeng/vscode development environment"**
+(Terminal → Run Task), or directly:
+
+```bash
+blender --background --python scripts/dev_environment_vscode_config.py
+```
+
+This does two things:
+
+1. Replaces the installed addon copy inside Blender's config directory with a
+   symlink pointing to `bexpeng/` in this repo, so Blender always loads your
+   working tree.
+2. Writes `.vscode/settings.json` with the path mappings the debugger needs to
+   resolve Blender's runtime paths back to your local source files.
+
+Re-run this script if you move the repo or upgrade Blender.
+
+**Interactive development (with live debugger)**
+
+1. Run the VS Code task **"Launch Blender interactively"** — this opens
+   Blender's GUI with debugpy listening on port 5678.
+2. In VS Code, run the **"Interactive+debugger"** launch configuration (F5) to
+   attach the debugger. Breakpoints in `bexpeng/` source files will now be hit.
+3. Edit code, then restart Blender from within Blender using the
+   `bim.restart_blender` operator (F3 → type *restart*). Blender relaunches
+   and re-opens the debugpy port automatically.
+4. Press F5 again to re-attach the debugger.
+
+You do not need to rerun the launch task between restarts — the task stays
+running and Blender manages its own restart.
+
+**Automated testing**
+
+Run the VS Code task **"Run Blender+testing"** to execute the test suite
+headlessly inside Blender's Python. The task completes when Blender prints
+`Blender quit`.
+
+If you need to debug a failing test, use the **"Pytest+debugger"** launch
+configuration (F5) — it launches the test task automatically and attaches the
+debugger when the port becomes available.
+
 ## Quick start (API for other addons)
 
 ```python

@@ -5,6 +5,15 @@
 import bpy
 
 
+def _on_active_index_changed(self, context):
+    """Populate the bottom edit fields when the active list item changes."""
+    idx = self.active_expression_index
+    if 0 <= idx < len(self.expressions):
+        item = self.expressions[idx]
+        self.edit_name = item.param_name
+        self.edit_value = item.raw_value
+
+
 class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
     """A single expression entry shown in the UI list."""
 
@@ -21,30 +30,31 @@ class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
         description="Current evaluated value (display only)",
         default="—",
     )
+    raw_value: bpy.props.StringProperty(
+        name="Raw Value",
+        description="User-facing value string: a number, or '= expr' for expressions",
+        default="0",
+    )
 
 
 class BEXPENG_SceneProperties(bpy.types.PropertyGroup):
     """Scene-level properties for bexpeng."""
 
     expressions: bpy.props.CollectionProperty(type=BEXPENG_ExpressionItem)
-    active_expression_index: bpy.props.IntProperty(name="Active Expression")
+    active_expression_index: bpy.props.IntProperty(
+        name="Active Expression",
+        update=_on_active_index_changed,
+    )
 
-    # Fields for adding new entries
-    new_param_name: bpy.props.StringProperty(
+    # Bottom edit / add fields
+    edit_name: bpy.props.StringProperty(
         name="Name",
-        description="Parameter name",
+        description="Parameter name to add or edit",
     )
-    new_param_value: bpy.props.FloatProperty(
+    edit_value: bpy.props.StringProperty(
         name="Value",
-        description="Initial parameter value",
-    )
-    new_expr_param: bpy.props.StringProperty(
-        name="Target",
-        description="Parameter to bind the expression to",
-    )
-    new_expr_text: bpy.props.StringProperty(
-        name="Expression",
-        description="Expression string (e.g. '2 * wall_length')",
+        description="Number value, or start with '=' for an expression (e.g. '= a * 2')",
+        default="0",
     )
 
 

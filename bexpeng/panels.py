@@ -6,7 +6,7 @@ import bpy
 
 
 class BEXPENG_UL_expression_list(bpy.types.UIList):
-    """UIList showing registered parameters and their expressions."""
+    """UIList showing registered parameters and their values/expressions."""
 
     bl_idname = "BEXPENG_UL_expression_list"
 
@@ -16,9 +16,7 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
         if self.layout_type in {"DEFAULT", "COMPACT"}:
             row = layout.row(align=True)
             row.label(text=item.param_name, icon="DOT")
-            if item.expression:
-                row.label(text=f"= {item.expression}")
-            row.label(text=f"[{item.value_str}]")
+            row.label(text=item.raw_value)
         elif self.layout_type == "GRID":
             layout.alignment = "CENTER"
             layout.label(text=item.param_name)
@@ -37,7 +35,7 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
         layout = self.layout
         props = context.scene.bexpeng
 
-        # Expression list
+        # Parameter list with add / remove / refresh buttons on the right
         row = layout.row()
         row.template_list(
             "BEXPENG_UL_expression_list",
@@ -50,25 +48,17 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
         )
 
         col = row.column(align=True)
+        col.operator("bexpeng.init_add", icon="ADD", text="")
         col.operator("bexpeng.remove_parameter", icon="REMOVE", text="")
-        col.operator("bexpeng.remove_expression", icon="X", text="")
         col.separator()
         col.operator("bexpeng.refresh", icon="FILE_REFRESH", text="")
 
-        # Add parameter section
+        # Edit / add entry — always visible at the bottom
         box = layout.box()
-        box.label(text="Add Parameter", icon="ADD")
         row = box.row(align=True)
-        row.prop(props, "new_param_name", text="Name")
-        row.prop(props, "new_param_value", text="Value")
-        box.operator("bexpeng.add_parameter", icon="CHECKMARK")
-
-        # Add expression section
-        box = layout.box()
-        box.label(text="Set Expression", icon="SCRIPT")
-        box.prop(props, "new_expr_param", text="Target")
-        box.prop(props, "new_expr_text", text="Expr")
-        box.operator("bexpeng.add_expression", icon="CHECKMARK")
+        row.prop(props, "edit_name", text="Name")
+        row.prop(props, "edit_value", text="Value")
+        row.operator("bexpeng.save_edit", icon="CHECKMARK", text="")
 
 
 classes = (

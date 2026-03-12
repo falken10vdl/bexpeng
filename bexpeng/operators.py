@@ -19,32 +19,104 @@ def _sync_ui_list(context):
         expr = engine.get_expression(name)
         item.expression = expr if expr else ""
         item.value_str = str(value) if value is not None else "—"
+        item.raw_value = (
+            f"= {expr}" if expr else (str(value) if value is not None else "0")
+        )
+
+    # Keep bottom edit fields in sync with current selection
+    idx = props.active_expression_index
+    if 0 <= idx < len(props.expressions):
+        item = props.expressions[idx]
+        props.edit_name = item.param_name
+        props.edit_value = item.raw_value
 
 
-class BEXPENG_OT_add_parameter(bpy.types.Operator):
-    """Register a new parameter in the expression engine"""
+class BEXPENG_OT_init_add(bpy.types.Operator):
+    """Clear the edit fields to prepare for adding a new parameter"""
 
-    bl_idname = "bexpeng.add_parameter"
+    bl_idname = "bexpeng.init_add"
     bl_label = "Add Parameter"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.bexpeng
-        name = props.new_param_name.strip()
+        props.edit_name = ""
+        props.edit_value = "0"
+        props.active_expression_index = -1
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_save_edit(bpy.types.Operator):
+    """Save the name/value fields and propagate changes to the engine"""
+
+    bl_idname = "bexpeng.save_edit"
+    bl_label = "Save"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        name = props.edit_name.strip()
+        value_str = props.edit_value.strip()
+
         if not name:
             self.report({"WARNING"}, "Parameter name cannot be empty")
             return {"CANCELLED"}
         if not name.isidentifier():
             self.report({"WARNING"}, f"'{name}' is not a valid Python identifier")
             return {"CANCELLED"}
+
         engine = get_engine()
-        if engine.has_parameter(name):
-            self.report({"WARNING"}, f"Parameter '{name}' already exists")
-            return {"CANCELLED"}
-        engine.register_parameter(name, props.new_param_value)
+        idx = props.active_expression_index
+        old_name = (
+            props.expressions[idx].param_name
+            if 0 <= idx < len(props.expressions)
+            else None
+        )
+
+        # Handle rename: remove the old parameter first
+        if old_name and old_name != name and engine.has_parameter(old_name):
+            engine.unregister_parameter(old_name)
+
+        if value_str.startswith("="):
+            expr = value_str[1:].strip()
+            if not expr:
+                self.report({"WARNING"}, "Expression cannot be empty after '='")
+                return {"CANCELLED"}
+            valid, err = expr_parser.validate_expression(expr)
+            if not valid:
+                self.report({"ERROR"}, f"Invalid expression: {err}")
+                return {"CANCELLED"}
+            if not engine.has_parameter(name):
+                engine.register_parameter(name, 0.0)
+            try:
+                engine.register_expression(name, expr)
+            except Exception as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+        else:
+            try:
+                value = float(value_str) if value_str else 0.0
+            except ValueError:
+                self.report(
+                    {"WARNING"},
+                    "Value must be a number, or start with '=' for an expression",
+                )
+                return {"CANCELLED"}
+            if engine.has_parameter(name):
+                if engine.has_expression(name):
+                    engine.unregister_expression(name)
+                engine.set_value(name, value)
+            else:
+                engine.register_parameter(name, value)
+
         _sync_ui_list(context)
-        props.new_param_name = ""
-        props.new_param_value = 0.0
+
+        # Re-select the saved parameter
+        for i, item in enumerate(props.expressions):
+            if item.param_name == name:
+                props.active_expression_index = i
+                break
+
         return {"FINISHED"}
 
 
@@ -69,76 +141,6 @@ class BEXPENG_OT_remove_parameter(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class BEXPENG_OT_add_expression(bpy.types.Operator):
-    """Bind an expression to a parameter"""
-
-    bl_idname = "bexpeng.add_expression"
-    bl_label = "Set Expression"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        props = context.scene.bexpeng
-        name = props.new_expr_param.strip()
-        expr = props.new_expr_text.strip()
-        if not name or not expr:
-            self.report({"WARNING"}, "Target parameter and expression are required")
-            return {"CANCELLED"}
-
-        valid, err = expr_parser.validate_expression(expr)
-        if not valid:
-            self.report({"ERROR"}, f"Invalid expression: {err}")
-            return {"CANCELLED"}
-
-        engine = get_engine()
-        try:
-            engine.register_expression(name, expr)
-        except Exception as exc:
-            self.report({"ERROR"}, str(exc))
-            return {"CANCELLED"}
-
-        _sync_ui_list(context)
-        props.new_expr_param = ""
-        props.new_expr_text = ""
-        return {"FINISHED"}
-
-
-class BEXPENG_OT_remove_expression(bpy.types.Operator):
-    """Remove the expression from the selected parameter"""
-
-    bl_idname = "bexpeng.remove_expression"
-    bl_label = "Remove Expression"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        props = context.scene.bexpeng
-        idx = props.active_expression_index
-        if idx < 0 or idx >= len(props.expressions):
-            self.report({"WARNING"}, "No parameter selected")
-            return {"CANCELLED"}
-        name = props.expressions[idx].param_name
-        engine = get_engine()
-        engine.unregister_expression(name)
-        _sync_ui_list(context)
-        return {"FINISHED"}
-
-
-class BEXPENG_OT_set_value(bpy.types.Operator):
-    """Update a parameter value and recompute dependents"""
-
-    bl_idname = "bexpeng.set_value"
-    bl_label = "Set Value"
-    bl_options = {"REGISTER", "UNDO"}
-
-    param_name: bpy.props.StringProperty()
-    param_value: bpy.props.FloatProperty()
-
-    def execute(self, context):
-        engine = get_engine()
-        engine.set_value(self.param_name, self.param_value)
-        _sync_ui_list(context)
-        return {"FINISHED"}
-
-
 class BEXPENG_OT_refresh(bpy.types.Operator):
     """Refresh the expression list from the engine"""
 
@@ -153,11 +155,9 @@ class BEXPENG_OT_refresh(bpy.types.Operator):
 
 
 classes = (
-    BEXPENG_OT_add_parameter,
+    BEXPENG_OT_init_add,
+    BEXPENG_OT_save_edit,
     BEXPENG_OT_remove_parameter,
-    BEXPENG_OT_add_expression,
-    BEXPENG_OT_remove_expression,
-    BEXPENG_OT_set_value,
     BEXPENG_OT_refresh,
 )
 
