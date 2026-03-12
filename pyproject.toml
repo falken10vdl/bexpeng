@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bexpeng"
+version = "0.1.0"
+description = "Blender Expression Engine — parametric expression system for cross-addon parameter linking"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+authors = [
+    { name = "bexpeng contributors" },
+]
+keywords = ["blender", "parametric", "expressions", "bim", "bonsai", "cad"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+dependencies = [
+    "asteval>=1.0",
+    "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/falken10vdl/bexpeng"
+Repository = "https://github.com/falken10vdl/bexpeng"
+Issues = "https://github.com/falken10vdl/bexpeng/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["bexpeng*"]
