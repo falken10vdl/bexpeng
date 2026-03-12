@@ -15,8 +15,10 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
     ):
         if self.layout_type in {"DEFAULT", "COMPACT"}:
             row = layout.row(align=True)
-            row.label(text=item.param_name, icon="DOT")
+            row.label(text=item.param_name)
             row.label(text=item.raw_value)
+            if item.expression:
+                row.label(text=f"[{item.value_str}]")
         elif self.layout_type == "GRID":
             layout.alignment = "CENTER"
             layout.label(text=item.param_name)
