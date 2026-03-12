@@ -32,6 +32,15 @@ bl_info = {
     "tracker_url": "https://github.com/falken10vdl/bexpeng/issues",
 }
 
+# Ensure bundled libraries (asteval, networkx) are importable.
+# In a release zip they live under bexpeng/libs/.
+import os as _os
+import sys as _sys
+
+_libs_dir = _os.path.join(_os.path.dirname(__file__), "libs")
+if _os.path.isdir(_libs_dir) and _libs_dir not in _sys.path:
+    _sys.path.insert(0, _libs_dir)
+
 # Re-export the public API at package level so users can do:
 #   import bexpeng; engine = bexpeng.get_engine()
 from .api import get_engine, reset_engine  # noqa: E402, F401
