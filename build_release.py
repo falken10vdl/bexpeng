@@ -39,13 +39,20 @@ def pip_download_libs():
         shutil.rmtree(LIBS_STAGE)
     LIBS_STAGE.mkdir()
 
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install",
-        "--target", str(LIBS_STAGE),
-        "--no-deps",
-        "--only-binary=:all:",
-        "asteval", "networkx",
-    ])
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--target",
+            str(LIBS_STAGE),
+            "--no-deps",
+            "--only-binary=:all:",
+            "asteval",
+            "networkx",
+        ]
+    )
 
 
 def build_zip():
@@ -62,7 +69,8 @@ def build_zip():
         for root, dirs, files in os.walk(LIBS_STAGE):
             # Skip dist-info, __pycache__, bin, tests
             dirs[:] = [
-                d for d in dirs
+                d
+                for d in dirs
                 if not d.endswith(".dist-info")
                 and d != "__pycache__"
                 and d != "bin"
@@ -96,7 +104,9 @@ def main():
         for info in zf.infolist():
             print(f"  {info.filename}  ({info.file_size} bytes)")
 
-    print(f"\nDone! Install in Blender: Edit → Preferences → Add-ons → Install → {zip_path.name}")
+    print(
+        f"\nDone! Install in Blender: Edit → Preferences → Add-ons → Install → {zip_path.name}"
+    )
 
 
 if __name__ == "__main__":
