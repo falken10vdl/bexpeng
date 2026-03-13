@@ -4,6 +4,21 @@
 
 import bpy
 
+from .operators import sync_scene_ui_list
+
+_AUTO_SYNC_INTERVAL_SECONDS = 0.5
+
+
+def _auto_sync_timer():
+    """Keep panel collections synced without mutating Blender IDs in draw()."""
+    try:
+        for scene in bpy.data.scenes:
+            sync_scene_ui_list(scene)
+    except Exception:
+        # Keep timer resilient; next tick can still recover.
+        pass
+    return _AUTO_SYNC_INTERVAL_SECONDS
+
 
 class BEXPENG_UL_expression_list(bpy.types.UIList):
     """UIList showing registered parameters and their values/expressions."""
@@ -72,8 +87,12 @@ classes = (
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    if not bpy.app.timers.is_registered(_auto_sync_timer):
+        bpy.app.timers.register(_auto_sync_timer, first_interval=0.2, persistent=True)
 
 
 def unregister():
+    if bpy.app.timers.is_registered(_auto_sync_timer):
+        bpy.app.timers.unregister(_auto_sync_timer)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
