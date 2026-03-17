@@ -24,16 +24,23 @@ def _save_handler(dummy) -> None:
     """``save_pre`` handler — persist engine state into the scene."""
     engine = get_engine()
     data = engine.to_dict()
-    for scene in bpy.data.scenes:
-        scene[_PROP_KEY] = json.dumps(data)
-    log.debug("bexpeng: saved engine state")
+    # Store in the active scene (or first scene as fallback)
+    target_scene = bpy.context.scene if bpy.context.scene else bpy.data.scenes[0]
+    if target_scene:
+        target_scene[_PROP_KEY] = json.dumps(data)
+        log.debug("bexpeng: saved engine state to scene '%s'", target_scene.name)
 
 
 def _load_handler(dummy) -> None:
-    """``load_post`` handler — restore engine state from the scene."""
+    """``load_post`` handler — restore engine state from any scene."""
     reset_engine()
-    scene = bpy.context.scene
-    raw = scene.get(_PROP_KEY)
+    # Search all scenes for the saved data (in case the active scene changed)
+    raw = None
+    for scene in bpy.data.scenes:
+        raw = scene.get(_PROP_KEY)
+        if raw is not None:
+            log.debug("bexpeng: found saved state in scene '%s'", scene.name)
+            break
     if raw is None:
         return
     try:

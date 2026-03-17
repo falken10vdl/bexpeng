@@ -2,10 +2,15 @@
 # Copyright (C) 2026 bexpeng contributors
 """Blender operators for managing parameters and expressions."""
 
+import logging
+
 import bpy
 
 from .api import get_engine
 from . import parser as expr_parser
+
+
+log = logging.getLogger(__name__)
 
 
 def sync_scene_ui_list(scene):
@@ -120,8 +125,18 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
 
         engine = get_engine()
 
+        log.warning(
+            "[bexpeng.save_edit] start name=%r old_name=%r value_str=%r",
+            name,
+            old_name,
+            value_str,
+        )
+
         # Handle rename: remove the old parameter first
         if old_name and old_name != name and engine.has_parameter(old_name):
+            log.warning(
+                "[bexpeng.save_edit] rename: unregister old parameter %r", old_name
+            )
             engine.unregister_parameter(old_name)
 
         if value_str.startswith("="):
@@ -134,11 +149,23 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
                 self.report({"ERROR"}, f"Invalid expression: {err}")
                 return {"CANCELLED"}
             if not engine.has_parameter(name):
+                log.warning(
+                    "[bexpeng.save_edit] create parameter %r with initial value 0.0",
+                    name,
+                )
                 engine.register_parameter(name, 0.0)
             try:
+                log.warning(
+                    "[bexpeng.save_edit] register expression %r = %r", name, expr
+                )
                 engine.register_expression(name, expr)
             except Exception as exc:
                 self.report({"ERROR"}, str(exc))
+                log.warning(
+                    "[bexpeng.save_edit] expression registration failed for %r: %s",
+                    name,
+                    exc,
+                )
                 return {"CANCELLED"}
         else:
             try:
@@ -151,10 +178,31 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
                 return {"CANCELLED"}
             if engine.has_parameter(name):
                 if engine.has_expression(name):
+                    log.warning(
+                        "[bexpeng.save_edit] unregister expression for %r before setting numeric value",
+                        name,
+                    )
                     engine.unregister_expression(name)
+                log.warning("[bexpeng.save_edit] set_value %r = %r", name, value)
                 engine.set_value(name, value)
             else:
+                log.warning(
+                    "[bexpeng.save_edit] register_parameter %r = %r", name, value
+                )
                 engine.register_parameter(name, value)
+
+        current_value = engine.get_value(name)
+        current_expr = (
+            engine.get_expression(name) if engine.has_parameter(name) else None
+        )
+        subscribers = len(getattr(engine, "_subscribers", {}).get(name, []))
+        log.warning(
+            "[bexpeng.save_edit] end name=%r value=%r expression=%r subscribers=%d",
+            name,
+            current_value,
+            current_expr,
+            subscribers,
+        )
 
         sync_ui_list(context)
 
