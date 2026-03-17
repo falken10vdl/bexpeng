@@ -33,27 +33,61 @@ def _save_handler(dummy) -> None:
 
 def _load_handler(dummy) -> None:
     """``load_post`` handler — restore engine state from any scene."""
-    reset_engine()
-    # Search all scenes for the saved data (in case the active scene changed)
+    # Search all scenes for explicit serialized state first.
     raw = None
     for scene in bpy.data.scenes:
         raw = scene.get(_PROP_KEY)
         if raw is not None:
             log.debug("bexpeng: found saved state in scene '%s'", scene.name)
             break
-    if raw is None:
-        return
+
+    if raw is not None:
+        try:
+            data = json.loads(raw)
+            reset_engine()
+            engine = get_engine()
+            engine.load_dict(data)
+            log.info(
+                "bexpeng: restored %d parameters, %d expressions",
+                len(engine.list_parameters()),
+                len(engine.list_expressions()),
+            )
+            return
+        except Exception as exc:
+            log.error("bexpeng: failed to restore engine state: %s", exc)
+
+    # Fallback: rebuild engine from persisted scene UI rows. This prevents
+    # clearing panel data on file load when _PROP_KEY is absent.
+    rebuilt = 0
+    rebuilt_expr = 0
     try:
-        data = json.loads(raw)
+        reset_engine()
         engine = get_engine()
-        engine.load_dict(data)
-        log.info(
-            "bexpeng: restored %d parameters, %d expressions",
-            len(engine.list_parameters()),
-            len(engine.list_expressions()),
-        )
+        for scene in bpy.data.scenes:
+            props = getattr(scene, "bexpeng", None)
+            if props is None:
+                continue
+            for item in getattr(props, "expressions", []):
+                name = (getattr(item, "param_name", "") or "").strip()
+                raw_value = (getattr(item, "raw_value", "") or "").strip()
+                if not name:
+                    continue
+                if raw_value.startswith("="):
+                    expr = raw_value[1:].strip()
+                    if not engine.has_parameter(name):
+                        engine.register_parameter(name, 0.0)
+                    if expr:
+                        engine.register_expression(name, expr)
+                        rebuilt_expr += 1
+                else:
+                    try:
+                        value = float(raw_value)
+                    except Exception:
+                        value = 0.0
+                    engine.register_parameter(name, value)
+                rebuilt += 1
     except Exception as exc:
-        log.error("bexpeng: failed to restore engine state: %s", exc)
+        log.error("bexpeng: fallback rebuild failed: %s", exc)
 
 
 def register():

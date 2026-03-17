@@ -28,6 +28,33 @@ def sync_scene_ui_list(scene):
     parameters = engine.list_parameters()
     expressions = engine.list_expressions()
 
+    # If engine is empty but the scene UI list already has persisted rows,
+    # rebuild engine from those rows instead of clearing the UI on sync.
+    if not parameters and len(props.expressions):
+        rebuilt = 0
+        rebuilt_expr = 0
+        for item in props.expressions:
+            name = (getattr(item, "param_name", "") or "").strip()
+            raw_value = (getattr(item, "raw_value", "") or "").strip()
+            if not name:
+                continue
+            if raw_value.startswith("="):
+                expr = raw_value[1:].strip()
+                if not engine.has_parameter(name):
+                    engine.register_parameter(name, 0.0)
+                if expr:
+                    engine.register_expression(name, expr)
+                    rebuilt_expr += 1
+            else:
+                try:
+                    value = float(raw_value)
+                except Exception:
+                    value = 0.0
+                engine.register_parameter(name, value)
+            rebuilt += 1
+        parameters = engine.list_parameters()
+        expressions = engine.list_expressions()
+
     # Build stable snapshots so we only rebuild the Blender collection when
     # the underlying engine state changed.
     old_snapshot = [
