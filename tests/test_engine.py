@@ -104,6 +104,19 @@ class TestExpressions:
         with pytest.raises(SyntaxError):
             e.register_expression("y", "2 * (")
 
+    def test_string_expression_literal(self):
+        e = ParametricEngine()
+        e.register_parameter("label")
+        e.register_expression("label", '"A-01"')
+        assert e.get_value("label") == "A-01"
+
+    def test_string_expression_concat(self):
+        e = ParametricEngine()
+        e.register_parameter("prefix", "Wall-")
+        e.register_parameter("name")
+        e.register_expression("name", "prefix + 'A'")
+        assert e.get_value("name") == "Wall-A"
+
 
 class TestCycleDetection:
     def test_direct_cycle(self):

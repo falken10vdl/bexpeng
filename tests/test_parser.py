@@ -3,7 +3,7 @@
 """Tests for the expression parser."""
 
 import pytest
-from bexpeng.parser import extract_dependencies, validate_expression
+from bexpeng.parser import extract_dependencies, parse_manual_value, validate_expression
 
 
 class TestValidateExpression:
@@ -65,3 +65,35 @@ class TestExtractDependencies:
         known = {"x"}
         deps = extract_dependencies("2 * (", known)
         assert deps == set()
+
+
+class TestParseManualValue:
+    def test_numeric_value(self):
+        ok, value, err = parse_manual_value("12.5")
+        assert ok
+        assert value == pytest.approx(12.5)
+        assert err == ""
+
+    def test_empty_defaults_to_zero(self):
+        ok, value, err = parse_manual_value("   ")
+        assert ok
+        assert value == 0.0
+        assert err == ""
+
+    def test_quoted_string_literal(self):
+        ok, value, err = parse_manual_value('"hello"')
+        assert ok
+        assert value == "hello"
+        assert err == ""
+
+    def test_unquoted_string_is_rejected(self):
+        ok, value, err = parse_manual_value("hello")
+        assert not ok
+        assert value is None
+        assert "quoted string literal" in err
+
+    def test_non_string_python_literal_is_rejected(self):
+        ok, value, err = parse_manual_value("[1, 2]")
+        assert not ok
+        assert value is None
+        assert "Only numbers and quoted string literals" in err

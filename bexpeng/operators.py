@@ -46,10 +46,8 @@ def sync_scene_ui_list(scene):
                     engine.register_expression(name, expr)
                     rebuilt_expr += 1
             else:
-                try:
-                    value = float(raw_value)
-                except Exception:
-                    value = 0.0
+                ok, parsed_value, _ = expr_parser.parse_manual_value(raw_value)
+                value = parsed_value if ok else 0.0
                 engine.register_parameter(name, value)
             rebuilt += 1
         parameters = engine.list_parameters()
@@ -195,18 +193,14 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
                 )
                 return {"CANCELLED"}
         else:
-            try:
-                value = float(value_str) if value_str else 0.0
-            except ValueError:
-                self.report(
-                    {"WARNING"},
-                    "Value must be a number, or start with '=' for an expression",
-                )
+            ok, value, err = expr_parser.parse_manual_value(value_str)
+            if not ok:
+                self.report({"WARNING"}, err)
                 return {"CANCELLED"}
             if engine.has_parameter(name):
                 if engine.has_expression(name):
                     log.warning(
-                        "[bexpeng.save_edit] unregister expression for %r before setting numeric value",
+                        "[bexpeng.save_edit] unregister expression for %r before setting direct value",
                         name,
                     )
                     engine.unregister_expression(name)

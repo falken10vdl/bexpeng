@@ -10,6 +10,7 @@ expression engine.
 ## Features
 
 - **Named parameters** — register values from any addon
+- **Direct value types** — numbers and quoted string literals (e.g. `"Beam A"`)
 - **Expression binding** — attach Python-style expressions to parameters (e.g. `"2 * wall_length"`)
 - **Automatic dependency resolution** — topological evaluation order via a directed acyclic graph
 - **Cycle detection** — registering a circular dependency raises an error immediately

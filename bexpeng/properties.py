@@ -53,7 +53,7 @@ class BEXPENG_SceneProperties(bpy.types.PropertyGroup):
     )
     edit_value: bpy.props.StringProperty(
         name="Value",
-        description="Number value, or start with '=' for an expression (e.g. '= a * 2')",
+        description="Number, quoted string literal, or start with '=' for an expression (e.g. '= a * 2')",
         default="0",
     )
 

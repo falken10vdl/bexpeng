@@ -44,3 +44,48 @@ def validate_expression(expression: str) -> tuple[bool, str]:
         return True, ""
     except SyntaxError as e:
         return False, str(e)
+
+
+def parse_manual_value(value_text: str) -> tuple[bool, object, str]:
+    """Parse a non-expression value entered in the UI.
+
+    Rules:
+    - Empty text resolves to ``0.0`` for backward compatibility.
+    - Unquoted numerics are accepted (e.g. ``42``, ``3.14``).
+    - Quoted Python string literals are accepted
+      (e.g. ``"wall"``, ``'A-01'``).
+
+    Args:
+        value_text: Raw text from the value field (without a leading ``=``).
+
+    Returns:
+        Tuple ``(ok, value, error_message)``.
+    """
+    text = value_text.strip()
+    if not text:
+        return True, 0.0, ""
+
+    # Keep legacy behavior for plain numbers entered without quotes.
+    try:
+        return True, float(text), ""
+    except ValueError:
+        pass
+
+    # Accept string literals exactly as Python/asteval would parse them.
+    try:
+        parsed = ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        return (
+            False,
+            None,
+            "Value must be a number, a quoted string literal, or start with '=' for an expression",
+        )
+
+    if isinstance(parsed, str):
+        return True, parsed, ""
+
+    return (
+        False,
+        None,
+        "Only numbers and quoted string literals are allowed for direct values",
+    )
