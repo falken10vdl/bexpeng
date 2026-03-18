@@ -56,7 +56,13 @@ def sync_scene_ui_list(scene):
     # Build stable snapshots so we only rebuild the Blender collection when
     # the underlying engine state changed.
     old_snapshot = [
-        (item.param_name, item.expression, item.value_str, item.raw_value)
+        (
+            item.param_name,
+            item.expression,
+            item.value_str,
+            item.raw_value,
+            item.ref_count,
+        )
         for item in props.expressions
     ]
 
@@ -69,7 +75,15 @@ def sync_scene_ui_list(scene):
             if expr
             else (expr_parser.format_direct_value(value) if value is not None else "0")
         )
-        new_snapshot.append((name, expr if expr else "", value_str, raw_value))
+        new_snapshot.append(
+            (
+                name,
+                expr if expr else "",
+                value_str,
+                raw_value,
+                engine.get_ref_count(name),
+            )
+        )
 
     if old_snapshot == new_snapshot:
         return False
@@ -91,6 +105,7 @@ def sync_scene_ui_list(scene):
             if expr
             else (expr_parser.format_direct_value(value) if value is not None else "0")
         )
+        item.ref_count = engine.get_ref_count(name)
 
     # Keep selection and edit fields stable if possible.
     props.active_expression_index = -1

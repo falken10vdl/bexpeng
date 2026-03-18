@@ -33,6 +33,10 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
             row.label(text=item.param_name)
             row.label(text=item.raw_value)
             row.label(text=f"[{item.value_str}]")
+            ref_label = str(item.ref_count) if item.ref_count > 0 else "—"
+            row.label(
+                text=ref_label, icon="LINKED" if item.ref_count > 0 else "UNLINKED"
+            )
         elif self.layout_type == "GRID":
             layout.alignment = "CENTER"
             layout.label(text=item.param_name)

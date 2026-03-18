@@ -40,6 +40,7 @@ class ParametricEngine:
         self._values: dict[str, Any] = {}
         self._expressions: dict[str, str] = {}
         self._subscribers: dict[str, list[Callable[[str, Any], None]]] = {}
+        self._ref_counts: dict[str, int] = {}
         self._graph: nx.DiGraph = nx.DiGraph()
         self._aeval: Interpreter = Interpreter()
 
@@ -61,7 +62,19 @@ class ParametricEngine:
             log.debug("Registered parameter '%s' = %r", name, value)
 
     def unregister_parameter(self, name: str) -> None:
-        """Remove a parameter and any expressions that reference it."""
+        """Remove a parameter only when no subscribers hold a reference to it.
+
+        If the reference count is still above zero the call is a no-op so that
+        renaming one binding does not destroy a parameter still used by others.
+        """
+        if self._ref_counts.get(name, 0) > 0:
+            log.debug(
+                "Skipping unregister of '%s': ref_count=%d",
+                name,
+                self._ref_counts[name],
+            )
+            return
+
         # Remove expressions that depend on this parameter
         dependents = list(self._graph.successors(name))
         for dep in dependents:
@@ -71,6 +84,7 @@ class ParametricEngine:
         self._values.pop(name, None)
         self._aeval.symtable.pop(name, None)
         self._subscribers.pop(name, None)
+        self._ref_counts.pop(name, None)
         if self._graph.has_node(name):
             self._graph.remove_node(name)
         log.debug("Unregistered parameter '%s'", name)
@@ -182,14 +196,21 @@ class ParametricEngine:
         """Register a callback for when a parameter value changes.
 
         The callback receives ``(parameter_name, new_value)``.
+        Increments the reference count for *name*.
         """
         self._subscribers.setdefault(name, []).append(callback)
+        self._ref_counts[name] = self._ref_counts.get(name, 0) + 1
 
     def unsubscribe(self, name: str, callback: Callable[[str, Any], None]) -> None:
-        """Remove a previously registered callback."""
+        """Remove a previously registered callback and decrement the reference count."""
         cbs = self._subscribers.get(name, [])
         if callback in cbs:
             cbs.remove(callback)
+            self._ref_counts[name] = max(0, self._ref_counts.get(name, 1) - 1)
+
+    def get_ref_count(self, name: str) -> int:
+        """Return how many active subscribers (Bonsai bindings) use *name*."""
+        return self._ref_counts.get(name, 0)
 
     # ------------------------------------------------------------------
     # Introspection

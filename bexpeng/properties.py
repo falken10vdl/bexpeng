@@ -35,6 +35,12 @@ class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
         description="User-facing value string: a number, or '= expr' for expressions",
         default="0",
     )
+    ref_count: bpy.props.IntProperty(
+        name="References",
+        description="Number of Bonsai bindings currently subscribed to this parameter",
+        default=0,
+        min=0,
+    )
 
 
 class BEXPENG_SceneProperties(bpy.types.PropertyGroup):
