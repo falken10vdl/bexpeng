@@ -117,6 +117,30 @@ class TestExpressions:
         e.register_expression("name", "prefix + 'A'")
         assert e.get_value("name") == "Wall-A"
 
+    def test_fstring_number_in_string(self):
+        e = ParametricEngine()
+        e.register_parameter("floor", 3)
+        e.register_parameter("label")
+        e.register_expression("label", 'f"Level {floor}"')
+        assert e.get_value("label") == "Level 3"
+
+    def test_fstring_string_and_number(self):
+        e = ParametricEngine()
+        e.register_parameter("base", "Wall")
+        e.register_parameter("n", 42)
+        e.register_parameter("tag")
+        e.register_expression("tag", 'f"{base}_{n}"')
+        assert e.get_value("tag") == "Wall_42"
+
+    def test_fstring_updates_on_dependency_change(self):
+        e = ParametricEngine()
+        e.register_parameter("storey", 1)
+        e.register_parameter("label")
+        e.register_expression("label", 'f"S{storey:02d}"')
+        assert e.get_value("label") == "S01"
+        e.set_value("storey", 5)
+        assert e.get_value("label") == "S05"
+
 
 class TestCycleDetection:
     def test_direct_cycle(self):

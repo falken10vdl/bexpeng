@@ -3,7 +3,12 @@
 """Tests for the expression parser."""
 
 import pytest
-from bexpeng.parser import extract_dependencies, parse_manual_value, validate_expression
+from bexpeng.parser import (
+    extract_dependencies,
+    format_direct_value,
+    parse_manual_value,
+    validate_expression,
+)
 
 
 class TestValidateExpression:
@@ -97,3 +102,18 @@ class TestParseManualValue:
         assert not ok
         assert value is None
         assert "Only numbers and quoted string literals" in err
+
+
+class TestFormatDirectValue:
+    def test_string_uses_double_quotes(self):
+        assert format_direct_value("Hola") == '"Hola"'
+
+    def test_number_uses_plain_str(self):
+        assert format_direct_value(3.14) == "3.14"
+
+    def test_round_trips_through_parse(self):
+        # Whatever format_direct_value produces must be accepted by parse_manual_value
+        for v in ("hello", "Wall-A", 'say "hi"'):
+            formatted = format_direct_value(v)
+            ok, parsed, _ = parse_manual_value(formatted)
+            assert ok and parsed == v

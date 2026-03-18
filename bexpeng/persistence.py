@@ -14,6 +14,7 @@ import logging
 import bpy
 
 from .api import get_engine, reset_engine
+from . import parser as expr_parser
 
 log = logging.getLogger(__name__)
 
@@ -80,11 +81,8 @@ def _load_handler(dummy) -> None:
                         engine.register_expression(name, expr)
                         rebuilt_expr += 1
                 else:
-                    try:
-                        value = float(raw_value)
-                    except Exception:
-                        value = 0.0
-                    engine.register_parameter(name, value)
+                    ok, parsed_value, _ = expr_parser.parse_manual_value(raw_value)
+                    engine.register_parameter(name, parsed_value if ok else 0.0)
                 rebuilt += 1
     except Exception as exc:
         log.error("bexpeng: fallback rebuild failed: %s", exc)

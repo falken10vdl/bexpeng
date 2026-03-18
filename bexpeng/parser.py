@@ -3,6 +3,7 @@
 """Expression parsing and dependency extraction using Python AST."""
 
 import ast
+import json
 
 
 def extract_dependencies(expression: str, known_names: set[str]) -> set[str]:
@@ -89,3 +90,15 @@ def parse_manual_value(value_text: str) -> tuple[bool, object, str]:
         None,
         "Only numbers and quoted string literals are allowed for direct values",
     )
+
+
+def format_direct_value(value: object) -> str:
+    """Format a direct parameter value for storage in the raw_value UI field.
+
+    String values are wrapped in double quotes so the UI clearly distinguishes
+    them from numbers and they round-trip correctly via parse_manual_value.
+    Numbers and other types use plain str().
+    """
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)

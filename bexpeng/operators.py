@@ -64,7 +64,11 @@ def sync_scene_ui_list(scene):
     for name, value in parameters.items():
         expr = expressions.get(name)
         value_str = str(value) if value is not None else "—"
-        raw_value = f"= {expr}" if expr else (str(value) if value is not None else "0")
+        raw_value = (
+            f"= {expr}"
+            if expr
+            else (expr_parser.format_direct_value(value) if value is not None else "0")
+        )
         new_snapshot.append((name, expr if expr else "", value_str, raw_value))
 
     if old_snapshot == new_snapshot:
@@ -83,7 +87,9 @@ def sync_scene_ui_list(scene):
         item.expression = expr if expr else ""
         item.value_str = str(value) if value is not None else "—"
         item.raw_value = (
-            f"= {expr}" if expr else (str(value) if value is not None else "0")
+            f"= {expr}"
+            if expr
+            else (expr_parser.format_direct_value(value) if value is not None else "0")
         )
 
     # Keep selection and edit fields stable if possible.
