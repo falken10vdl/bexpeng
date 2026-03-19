@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bexpeng"
-version = "0.1.0"
+version = "0.1.1"
 description = "Blender Expression Engine — parametric expression system for cross-addon parameter linking"
 readme = "README.md"
 license = "GPL-3.0-or-later"
