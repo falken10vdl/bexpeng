@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pytest+debugger",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "preLaunchTask": "Run Blender+testing",
+      "pathMappings": [
+        {
+          "localRoot": "${config:bexpeng.localRoot}",
+          "remoteRoot": "${config:bexpeng.remoteRoot}"
+        }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "Interactive+debugger",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${config:bexpeng.localRoot}",
+          "remoteRoot": "${config:bexpeng.remoteRoot}"
+        }
+      ],
+      "justMyCode": false
+    }
+  ]
+}
