@@ -77,9 +77,6 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
 
         # Buttons aligned to the top of the right column
         btn_col.operator("bexpeng.remove_parameter", icon="REMOVE", text="")
-        btn_col.separator()
-        btn_col.operator("bexpeng.refresh", icon="FILE_REFRESH", text="")
-
         # Edit / add entry — always visible at the bottom
         box = layout.box()
         row = box.row(align=True)
