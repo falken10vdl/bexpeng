@@ -20,21 +20,12 @@ def sync_scene_ui_list(scene):
     """
     props = getattr(scene, "bexpeng", None)
     if props is None:
-        print(
-            f"[bexpeng] sync_scene_ui_list: scene '{scene.name}' has no bexpeng props — skip"
-        )
         return False
 
     engine = get_engine()
 
     parameters = engine._list_parameters()
     expressions = engine._list_expressions()
-
-    print(
-        f"[bexpeng] sync_scene_ui_list: engine params={list(parameters.keys())} exprs={expressions}"
-    )
-    old_rows = [item.param_name for item in props.expressions]
-    print(f"[bexpeng] sync_scene_ui_list: props.expressions BEFORE={old_rows}")
 
     # Build stable snapshots so we only rebuild the Blender collection when
     # the underlying engine state changed.
@@ -64,12 +55,8 @@ def sync_scene_ui_list(scene):
         )
 
     if old_snapshot == new_snapshot:
-        print(f"[bexpeng] sync_scene_ui_list: snapshots match — no UI update needed")
         return False
 
-    print(
-        f"[bexpeng] sync_scene_ui_list: snapshots differ — rebuilding props.expressions"
-    )
     selected_name = None
     idx = props.active_expression_index
     if 0 <= idx < len(props.expressions):
@@ -98,8 +85,6 @@ def sync_scene_ui_list(scene):
         props.edit_name = item.param_name
         props.edit_value = item.expression
 
-    new_rows = [item.param_name for item in props.expressions]
-    print(f"[bexpeng] sync_scene_ui_list: props.expressions AFTER={new_rows}")
     return True
 
 
@@ -185,7 +170,6 @@ classes = (
 
 def _ui_post_solve() -> None:
     """Hook called by the engine after every solve; syncs all scene UI lists."""
-    print("[bexpeng] _ui_post_solve: triggered — syncing all scenes")
     for scene in bpy.data.scenes:
         sync_scene_ui_list(scene)
 
