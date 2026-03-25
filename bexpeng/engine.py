@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import traceback
 from typing import Any, Callable
 
 import networkx as nx
@@ -81,6 +82,9 @@ class ParametricEngine:
         self._graph: nx.DiGraph = nx.DiGraph()
         self._aeval: Interpreter = Interpreter()
         self.bexpeng_panel_update: Callable[[], None] | None = None
+        self.post_load_callbacks: list[Callable[[], None]] = []
+        """Callbacks fired after every ``load_dict`` call, in registration order.
+        Survive ``clear()`` so consumers only need to register once at addon load."""
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -249,6 +253,7 @@ class ParametricEngine:
         dependents (parameters that directly or indirectly depend on *root*).
         If *root* is ``None``, re-evaluates every node that has an expression.
         """
+        print(f"[bexpeng] _solve: root={root!r}")
         if root is not None:
             affected = {root} | nx.descendants(self._graph, root)
         else:
@@ -271,9 +276,16 @@ class ParametricEngine:
                 self._values[node] = val
                 self._aeval.symtable[node] = val
                 if val != old_val:
+                    print(
+                        f"[bexpeng] _solve: {node!r} changed {old_val!r} → {val!r}, notifying {len(self._subscribers.get(node, []))} subscriber(s)"
+                    )
                     self._notify(node)
-            except Exception:
-                pass
+                else:
+                    print(
+                        f"[bexpeng] _solve: {node!r} unchanged ({val!r}), skipping notify"
+                    )
+            except Exception as exc:
+                print(f"[bexpeng] _solve: EXCEPTION evaluating {node!r}: {exc!r}")
         if self.bexpeng_panel_update is not None:
             try:
                 self.bexpeng_panel_update()
@@ -282,11 +294,16 @@ class ParametricEngine:
 
     def _notify(self, name: str) -> None:
         """Call all subscribers for a parameter."""
-        for cb in self._subscribers.get(name, []):
+        callbacks = list(
+            self._subscribers.get(name, [])
+        )  # copy: safe against mutation during iteration
+        print(f"[bexpeng] _notify: {name!r} → {len(callbacks)} subscriber(s)")
+        for cb in callbacks:
             try:
                 cb(name)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[bexpeng] _notify: subscriber {cb!r} raised {exc!r}")
+                traceback.print_exc()
 
     # ------------------------------------------------------------------
     # Serialisation helpers
@@ -302,10 +319,17 @@ class ParametricEngine:
         return {"expressions": dict(self._expressions)}
 
     def load_dict(self, data: dict) -> None:
-        """Restore engine state from a dict produced by ``to_dict``."""
-        # Suppress the post-solve hook during batch reload; fire once at the end.
+        """Restore engine state from a dict produced by ``to_dict``.
+
+        After ``_solve()`` completes all ``post_load_callbacks`` are fired in
+        registration order so that consumers (e.g. Bonsai) can re-subscribe
+        deterministically, regardless of ``load_post`` handler ordering in
+        Blender.
+        """
+        # Suppress the panel refresh hook during batch reload; fire once at the end.
         hook = self.bexpeng_panel_update
         self.bexpeng_panel_update = None
+        print("[bexpeng] load_dict: START")
         try:
             self.clear()
             expressions = data.get("expressions", {})
@@ -327,11 +351,42 @@ class ParametricEngine:
                 hook()
             except Exception:
                 pass
+        print(
+            f"[bexpeng] load_dict: END — firing {len(self.post_load_callbacks)} post_load callback(s)"
+        )
+        for cb in list(self.post_load_callbacks):
+            try:
+                cb()
+            except Exception:
+                traceback.print_exc()
+
+    def register_post_load(self, cb: Callable[[], None]) -> None:
+        """Register *cb* to be called after each ``load_dict`` call completes.
+
+        Idempotent: registering the same callable twice has no effect.
+        Post-load callbacks survive ``clear()`` so consumers register once at
+        addon load time and are automatically notified on every file reload.
+        """
+        if cb not in self.post_load_callbacks:
+            self.post_load_callbacks.append(cb)
+
+    def unregister_post_load(self, cb: Callable[[], None]) -> None:
+        """Remove a previously registered post-load callback."""
+        self.post_load_callbacks = [c for c in self.post_load_callbacks if c is not cb]
 
     def clear(self) -> None:
-        """Remove all parameters, expressions, and subscribers."""
+        """Remove all parameters, expressions, and subscribers.
+
+        ``post_load_callbacks`` are intentionally preserved — they are
+        consumer-registered hooks that must survive reloads.
+        """
+        all_subs = {k: len(v) for k, v in self._subscribers.items() if v}
+        print(
+            f"[bexpeng] clear: WIPING {len(self._values)} params, subscribers={all_subs}"
+        )
         self._values.clear()
         self._expressions.clear()
         self._subscribers.clear()
+        self._ref_counts.clear()
         self._graph.clear()
         self._aeval.symtable.clear()

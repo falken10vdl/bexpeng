@@ -17,7 +17,7 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
             row = layout.row(align=True)
             row.label(text=item.param_name)
             row.label(text=item.expression)
-            row.label(text=f"[{item.value_str}]")
+            row.label(text=item.value_str)
             ref_col = row.row(align=True)
             ref_col.scale_x = 0.35
             ref_col.label(text=str(item.ref_count) if item.ref_count > 0 else "—")
