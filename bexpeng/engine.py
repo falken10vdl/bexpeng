@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import ast
-import traceback
 from typing import Any, Callable
 
 import networkx as nx
@@ -253,7 +252,6 @@ class ParametricEngine:
         dependents (parameters that directly or indirectly depend on *root*).
         If *root* is ``None``, re-evaluates every node that has an expression.
         """
-        print(f"[bexpeng] _solve: root={root!r}")
         if root is not None:
             affected = {root} | nx.descendants(self._graph, root)
         else:
@@ -276,16 +274,9 @@ class ParametricEngine:
                 self._values[node] = val
                 self._aeval.symtable[node] = val
                 if val != old_val:
-                    print(
-                        f"[bexpeng] _solve: {node!r} changed {old_val!r} → {val!r}, notifying {len(self._subscribers.get(node, []))} subscriber(s)"
-                    )
                     self._notify(node)
-                else:
-                    print(
-                        f"[bexpeng] _solve: {node!r} unchanged ({val!r}), skipping notify"
-                    )
-            except Exception as exc:
-                print(f"[bexpeng] _solve: EXCEPTION evaluating {node!r}: {exc!r}")
+            except Exception:
+                pass
         if self.bexpeng_panel_update is not None:
             try:
                 self.bexpeng_panel_update()
@@ -297,13 +288,11 @@ class ParametricEngine:
         callbacks = list(
             self._subscribers.get(name, [])
         )  # copy: safe against mutation during iteration
-        print(f"[bexpeng] _notify: {name!r} → {len(callbacks)} subscriber(s)")
         for cb in callbacks:
             try:
                 cb(name)
-            except Exception as exc:
-                print(f"[bexpeng] _notify: subscriber {cb!r} raised {exc!r}")
-                traceback.print_exc()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Serialisation helpers
@@ -329,7 +318,6 @@ class ParametricEngine:
         # Suppress the panel refresh hook during batch reload; fire once at the end.
         hook = self.bexpeng_panel_update
         self.bexpeng_panel_update = None
-        print("[bexpeng] load_dict: START")
         try:
             self.clear()
             expressions = data.get("expressions", {})
@@ -351,14 +339,11 @@ class ParametricEngine:
                 hook()
             except Exception:
                 pass
-        print(
-            f"[bexpeng] load_dict: END — firing {len(self.post_load_callbacks)} post_load callback(s)"
-        )
         for cb in list(self.post_load_callbacks):
             try:
                 cb()
             except Exception:
-                traceback.print_exc()
+                pass
 
     def register_post_load(self, cb: Callable[[], None]) -> None:
         """Register *cb* to be called after each ``load_dict`` call completes.
@@ -380,10 +365,6 @@ class ParametricEngine:
         ``post_load_callbacks`` are intentionally preserved — they are
         consumer-registered hooks that must survive reloads.
         """
-        all_subs = {k: len(v) for k, v in self._subscribers.items() if v}
-        print(
-            f"[bexpeng] clear: WIPING {len(self._values)} params, subscribers={all_subs}"
-        )
         self._values.clear()
         self._expressions.clear()
         self._subscribers.clear()
