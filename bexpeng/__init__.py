@@ -24,7 +24,7 @@ Quick start from another addon::
 bl_info = {
     "name": "BExpEng — Blender Expression Engine",
     "author": "bexpeng contributors",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > BExpEng",
     "description": "Parametric expression engine for cross-addon parameter linking",
