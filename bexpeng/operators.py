@@ -4,11 +4,11 @@
 
 import bpy
 
-from .api import get_engine
 from .engine import (
     ExpressionSyntaxError,
     ParameterHasDependentsError,
     ParameterStillReferencedError,
+    ParametricEngine,
 )
 
 
@@ -22,7 +22,7 @@ def sync_scene_ui_list(scene):
     if props is None:
         return False
 
-    engine = get_engine()
+    engine = ParametricEngine.get_instance()
 
     parameters = engine._list_parameters()
     expressions = engine._list_expressions()
@@ -117,7 +117,7 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
             self.report({"WARNING"}, f"'{name}' is not a valid Python identifier")
             return {"CANCELLED"}
 
-        engine = get_engine()
+        engine = ParametricEngine.get_instance()
 
         # Capture before any engine call — set_parameter triggers _solve →
         # ui_observer → sync_scene_ui_list, which rewrites
@@ -175,7 +175,7 @@ class BEXPENG_OT_remove_parameter(bpy.types.Operator):
             self.report({"WARNING"}, "No parameter selected")
             return {"CANCELLED"}
         name = props.expressions[idx].param_name
-        engine = get_engine()
+        engine = ParametricEngine.get_instance()
         try:
             engine.remove_parameter(name)
         except ParameterStillReferencedError as exc:
@@ -204,11 +204,11 @@ def _ui_post_solve() -> None:
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    get_engine().ui_observer = _ui_post_solve
+    ParametricEngine.get_instance().ui_observer = _ui_post_solve
 
 
 def unregister():
-    engine = get_engine()
+    engine = ParametricEngine.get_instance()
     if engine.ui_observer is _ui_post_solve:
         engine.ui_observer = None
     for cls in reversed(classes):

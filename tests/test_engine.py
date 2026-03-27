@@ -42,7 +42,7 @@ class TestParameters:
     def test_unregister_raises_if_subscribed(self):
         e = ParametricEngine()
         e.set_parameter("x", "5")
-        e.subscribe("x", lambda n: None)
+        e.attach("x", lambda n: None)
         with pytest.raises(ParameterStillReferencedError):
             e.remove_parameter("x")
 
@@ -58,7 +58,7 @@ class TestParameters:
         e = ParametricEngine()
         e.set_parameter("x", "5")
         e.set_parameter("y", "x + 1")
-        e.subscribe("x", lambda n: None)
+        e.attach("x", lambda n: None)
         # subscriber check runs first
         with pytest.raises(ParameterStillReferencedError):
             e.remove_parameter("x")
@@ -162,7 +162,7 @@ class TestSubscribers:
         e.set_parameter("x", "1")
         e.set_parameter("y", "x * 2")
         updates = []
-        e.subscribe("y", lambda name: updates.append((name, e.get_value(name))))
+        e.attach("y", lambda name: updates.append((name, e.get_value(name))))
         e.set_parameter("x", "5")
         assert ("y", 10) in updates
 
@@ -171,22 +171,22 @@ class TestSubscribers:
         e.set_parameter("x", "1")
         calls = []
         cb = lambda name: calls.append(e.get_value(name))
-        e.subscribe("x", cb)
+        e.attach("x", cb)
         e.set_parameter("x", "2")
         assert len(calls) == 1
-        e.unsubscribe("x", cb)
+        e.detach("x", cb)
         e.set_parameter("x", "3")
         assert len(calls) == 1  # not called again
 
     def test_ref_count(self):
         e = ParametricEngine()
         e.set_parameter("x", "1")
-        assert e.get_ref_count("x") == 0
+        assert e.get_observer_count("x") == 0
         cb = lambda n: None
-        e.subscribe("x", cb)
-        assert e.get_ref_count("x") == 1
-        e.unsubscribe("x", cb)
-        assert e.get_ref_count("x") == 0
+        e.attach("x", cb)
+        assert e.get_observer_count("x") == 1
+        e.detach("x", cb)
+        assert e.get_observer_count("x") == 0
 
 
 class TestSerialization:

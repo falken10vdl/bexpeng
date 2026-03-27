@@ -11,19 +11,19 @@ dependents — much like a spreadsheet or FreeCAD's expression engine.
 
 Quick start from another addon::
 
-    import bexpeng
+    from bexpeng.engine import ParametricEngine
 
-    engine = bexpeng.get_engine()
+    engine = ParametricEngine.get_instance()
     engine.set_parameter("line_length", "5.0")
     engine.set_parameter("wall_length", "2 * line_length")
-    engine.attach("wall_length", lambda name, val: print(f"{name} = {val}"))
+    engine.attach("wall_length", lambda name: print(f"{name} = {engine.get_value(name)}"))
     engine.set_parameter("line_length", "10.0")   # prints: wall_length = 20.0
 """
 
 bl_info = {
     "name": "BExpEng — Blender Expression Engine",
     "author": "bexpeng contributors",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > BExpEng",
     "description": "Parametric expression engine for cross-addon parameter linking",
@@ -41,9 +41,7 @@ _libs_dir = _os.path.join(_os.path.dirname(__file__), "libs")
 if _os.path.isdir(_libs_dir) and _libs_dir not in _sys.path:
     _sys.path.insert(0, _libs_dir)
 
-# Re-export the public API at package level so users can do:
-#   import bexpeng; engine = bexpeng.get_engine()
-from .api import get_engine, reset_engine  # noqa: E402, F401
+# Re-export the public API at package level.
 from .engine import (
     CyclicDependencyError,
     ExpressionSyntaxError,
@@ -58,7 +56,7 @@ _modules = (properties, operators, panels, persistence)
 
 
 def register():
-    get_engine()  # create the singleton before any module registers
+    ParametricEngine.get_instance()  # create the singleton before any module registers
     for mod in _modules:
         mod.register()
 

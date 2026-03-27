@@ -173,20 +173,23 @@ Unquoted text is interpreted as a number; entering `Beam A` without quotes will 
 
 | Method | Description |
 |---|---|
-| `get_engine()` | Return the singleton engine instance |
-| `engine.register_parameter(name, value=None)` | Register a named parameter |
-| `engine.set_value(name, value)` | Set a value and recompute dependents |
-| `engine.get_value(name)` | Get the current value |
-| `engine.register_expression(name, expr)` | Bind an expression to a parameter |
-| `engine.unregister_expression(name)` | Remove an expression |
-| `engine.remove_parameter(name)` | Remove a parameter and its dependents |
-| `engine.subscribe(name, callback)` | Register a `(name, value)` callback |
-| `engine.unsubscribe(name, callback)` | Remove a callback |
-| `engine.list_parameters()` | Dict of all parameter names and values |
-| `engine.list_expressions()` | Dict of all expression definitions |
-| `engine.get_dependents(name)` | Parameters that depend on *name* |
-| `engine.get_dependencies(name)` | Parameters that *name* depends on |
+| `ParametricEngine.get_instance()` | Return the singleton engine instance |
+| `ParametricEngine.reset_instance()` | Replace the instance (e.g. on file load), preserving `ui_observer` |
+| `engine.set_parameter(name, expression)` | Create or update a parameter with a literal or formula expression |
+| `engine.get_value(name)` | Get the current evaluated value |
+| `engine.get_expression(name)` | Get the expression string |
+| `engine.set_description(name, description)` | Set a human-readable description |
+| `engine.get_description(name)` | Get the description |
+| `engine.remove_parameter(name)` | Remove a parameter (raises if observers or dependents exist) |
+| `engine.attach(name, callback)` | Register a `callback(name)` called when the parameter changes |
+| `engine.detach(name, callback)` | Remove a previously attached callback |
+| `engine.get_observer_count(name)` | Number of callbacks currently attached to *name* |
+| `engine.get_dep_count(name)` | Number of parameters whose expressions reference *name* |
+| `engine.notify(name)` | Manually fire all callbacks for *name* |
+| `engine.attach_post_load(cb)` | Register a callback fired after every `load_dict()` call |
+| `engine.detach_post_load(cb)` | Remove a post-load callback |
 | `engine.to_dict()` / `engine.load_dict(data)` | Serialise / restore state |
+| `engine.clear()` | Remove all parameters, expressions, and observers |
 
 ## Architecture
 

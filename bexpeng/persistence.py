@@ -13,7 +13,7 @@ import json
 import bpy
 from bpy.app.handlers import persistent
 
-from .api import get_engine
+from .engine import ParametricEngine
 
 _PROP_KEY = "bexpeng_data"
 
@@ -21,7 +21,7 @@ _PROP_KEY = "bexpeng_data"
 @persistent
 def _save_handler(dummy) -> None:
     """``save_pre`` handler — persist engine state into the scene."""
-    engine = get_engine()
+    engine = ParametricEngine.get_instance()
     data = engine.to_dict()
     # Store in the active scene (or first scene as fallback)
     target_scene = bpy.context.scene if bpy.context.scene else bpy.data.scenes[0]
@@ -34,7 +34,7 @@ def _load_handler(dummy) -> None:
     """``load_post`` handler — restore engine state from the scene, then sync the UI."""
     from .operators import sync_scene_ui_list
 
-    engine = get_engine()
+    engine = ParametricEngine.get_instance()
 
     raw = None
     for scene in bpy.data.scenes:

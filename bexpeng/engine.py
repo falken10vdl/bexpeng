@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import ast
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 import networkx as nx
 from asteval import Interpreter
@@ -73,6 +73,8 @@ class ParametricEngine:
         A before B, which is the correct evaluation order.
     """
 
+    _instance: ClassVar[ParametricEngine | None] = None
+
     def __init__(self) -> None:
         self._values: dict[str, Any] = {}
         self._expressions: dict[str, str] = {}
@@ -85,6 +87,36 @@ class ParametricEngine:
         self._post_load_observers: list[Callable[[], None]] = []
         """Observers fired after every ``load_dict`` call, in registration order.
         Survive ``clear()`` so consumers only need to attach once at addon load."""
+
+    # ------------------------------------------------------------------
+    # Singleton access
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_instance(cls) -> ParametricEngine:
+        """Return the singleton ``ParametricEngine`` instance.
+
+        The instance is created lazily on first call.  All addons share
+        the same instance within a Blender session.
+        """
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Discard the current instance and create a fresh one.
+
+        Primarily used when loading a new ``.blend`` file.  The
+        ``ui_observer`` registered by the UI layer is preserved on the
+        replacement instance.
+        """
+        old = cls._instance
+        hook = old.ui_observer if old is not None else None
+        if old is not None:
+            old.clear()
+        cls._instance = cls()
+        cls._instance.ui_observer = hook
 
     # ------------------------------------------------------------------
     # Internal helpers
