@@ -11,7 +11,8 @@ def _on_active_index_changed(self, context):
     if 0 <= idx < len(self.expressions):
         item = self.expressions[idx]
         self.edit_name = item.param_name
-        self.edit_value = item.expression
+        self.edit_expression = item.expression
+        self.edit_description = item.description
 
 
 class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
@@ -29,6 +30,11 @@ class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
         name="Value",
         description="Current evaluated value (display only)",
         default="—",
+    )
+    description: bpy.props.StringProperty(
+        name="Description",
+        description="Optional human-readable description of this parameter",
+        default="",
     )
     ref_count: bpy.props.IntProperty(
         name="References",
@@ -58,10 +64,15 @@ class BEXPENG_SceneProperties(bpy.types.PropertyGroup):
         name="Name",
         description="Parameter name to add or edit",
     )
-    edit_value: bpy.props.StringProperty(
-        name="Value",
+    edit_expression: bpy.props.StringProperty(
+        name="Expression",
         description='A number (e.g. 3.0), a quoted string (e.g. "Beam A"), or a formula referencing other parameters (e.g. storey_height - 0.3)',
         default="0",
+    )
+    edit_description: bpy.props.StringProperty(
+        name="Description",
+        description="Optional human-readable description for this parameter",
+        default="",
     )
 
 

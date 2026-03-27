@@ -84,8 +84,9 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
         eq = row.row()
         eq.scale_x = 0.24
         eq.label(text="=")
-        row.prop(props, "edit_value", text="")
+        row.prop(props, "edit_expression", text="")
         row.operator("bexpeng.save_edit", icon="CHECKMARK", text="")
+        box.prop(props, "edit_description", text="", placeholder="Description…")
 
 
 classes = (

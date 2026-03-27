@@ -76,6 +76,7 @@ class ParametricEngine:
     def __init__(self) -> None:
         self._values: dict[str, Any] = {}
         self._expressions: dict[str, str] = {}
+        self._descriptions: dict[str, str] = {}
         self._subscribers: dict[str, list[Callable[[str], None]]] = {}
         self._ref_counts: dict[str, int] = {}
         self._graph: nx.DiGraph = nx.DiGraph()
@@ -106,6 +107,10 @@ class ParametricEngine:
         """Internal: return a copy of all expression definitions."""
         return dict(self._expressions)
 
+    def _list_descriptions(self) -> dict[str, str]:
+        """Internal: return a copy of all parameter descriptions."""
+        return dict(self._descriptions)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -128,6 +133,7 @@ class ParametricEngine:
             raise ParameterHasDependentsError(name, dependents)
 
         self._expressions.pop(name, None)
+        self._descriptions.pop(name, None)
         self._values.pop(name, None)
         self._aeval.symtable.pop(name, None)
         self._subscribers.pop(name, None)
@@ -208,6 +214,15 @@ class ParametricEngine:
     def get_expression(self, name: str) -> str | None:
         """Return the expression string for *name*, or ``None`` if unknown."""
         return self._expressions.get(name)
+
+    def set_description(self, name: str, description: str) -> None:
+        """Set a human-readable description for *name*. No-op if the parameter does not exist."""
+        if name in self._values:
+            self._descriptions[name] = description
+
+    def get_description(self, name: str) -> str:
+        """Return the description for *name*, or an empty string if unset."""
+        return self._descriptions.get(name, "")
 
     # ------------------------------------------------------------------
     # Subscribers
@@ -301,11 +316,14 @@ class ParametricEngine:
     def to_dict(self) -> dict:
         """Serialise engine state to a plain dict (for JSON storage).
 
-        Format: ``{"expressions": {name: expression_str, ...}}``.
+        Format: ``{"expressions": {name: expression_str, ...}, "descriptions": {name: desc, ...}}``.
         Every parameter is represented by its expression (a literal such as
         ``"5.0"`` for direct values, or a formula like ``"2 * length"``).
         """
-        return {"expressions": dict(self._expressions)}
+        return {
+            "expressions": dict(self._expressions),
+            "descriptions": dict(self._descriptions),
+        }
 
     def load_dict(self, data: dict) -> None:
         """Restore engine state from a dict produced by ``to_dict``.
@@ -331,6 +349,9 @@ class ParametricEngine:
                     self._register_expression(name, expr, _defer_solve=True)
                 except Exception:
                     pass
+            descriptions = data.get("descriptions", {})
+            for name, desc in descriptions.items():
+                self.set_description(name, desc)
             self._solve()
         finally:
             self.bexpeng_panel_update = hook
@@ -367,6 +388,7 @@ class ParametricEngine:
         """
         self._values.clear()
         self._expressions.clear()
+        self._descriptions.clear()
         self._subscribers.clear()
         self._ref_counts.clear()
         self._graph.clear()

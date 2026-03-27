@@ -26,6 +26,7 @@ def sync_scene_ui_list(scene):
 
     parameters = engine._list_parameters()
     expressions = engine._list_expressions()
+    descriptions = engine._list_descriptions()
 
     # Build stable snapshots so we only rebuild the Blender collection when
     # the underlying engine state changed.
@@ -36,6 +37,7 @@ def sync_scene_ui_list(scene):
             item.value_str,
             item.ref_count,
             item.dep_count,
+            item.description,
         )
         for item in props.expressions
     ]
@@ -51,6 +53,7 @@ def sync_scene_ui_list(scene):
                 value_str,
                 engine.get_ref_count(name),
                 engine.get_dep_count(name),
+                descriptions.get(name, ""),
             )
         )
 
@@ -70,6 +73,7 @@ def sync_scene_ui_list(scene):
         item.value_str = str(value) if value is not None else "—"
         item.ref_count = engine.get_ref_count(name)
         item.dep_count = engine.get_dep_count(name)
+        item.description = descriptions.get(name, "")
 
     # Keep selection and edit fields stable if possible.
     props.active_expression_index = -1
@@ -83,7 +87,8 @@ def sync_scene_ui_list(scene):
     if 0 <= idx < len(props.expressions):
         item = props.expressions[idx]
         props.edit_name = item.param_name
-        props.edit_value = item.expression
+        props.edit_expression = item.expression
+        props.edit_description = item.description
 
     return True
 
@@ -103,7 +108,7 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
     def execute(self, context):
         props = context.scene.bexpeng
         name = props.edit_name.strip()
-        value_str = props.edit_value.strip()
+        value_str = props.edit_expression.strip()
 
         if not name:
             self.report({"WARNING"}, "Parameter name cannot be empty")
@@ -114,6 +119,14 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
 
         engine = get_engine()
 
+        # Capture before any engine call — set_parameter triggers _solve →
+        # bexpeng_panel_update → sync_scene_ui_list, which rewrites
+        # props.edit_description from the (not-yet-updated) engine state.
+        description = props.edit_description
+        print(
+            f"[bexpeng] save_edit: name={name!r} expr={value_str!r} description={description!r}"
+        )
+
         try:
             engine.set_parameter(name, value_str or "0")
         except ExpressionSyntaxError as exc:
@@ -123,12 +136,26 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
 
+        print(
+            f"[bexpeng] after set_parameter: props.edit_description={props.edit_description!r}"
+        )
+        print(f"[bexpeng] calling engine.set_description({name!r}, {description!r})")
+        engine.set_description(name, description)
+        print(
+            f"[bexpeng] engine.get_description({name!r}) = {engine.get_description(name)!r}"
+        )
+
         sync_ui_list(context)
 
-        # Select the saved parameter in the list
+        print(
+            f"[bexpeng] after sync_ui_list: props.edit_description={props.edit_description!r}"
+        )
+
+        # Select the saved parameter
         for i, item in enumerate(props.expressions):
             if item.param_name == name:
                 props.active_expression_index = i
+                print(f"[bexpeng] item.description after sync = {item.description!r}")
                 break
 
         return {"FINISHED"}
