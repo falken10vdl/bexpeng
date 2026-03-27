@@ -20,7 +20,7 @@ Usage from another addon::
         # Apply value back to your IFC/BIM object
         ...
 
-    engine.subscribe("wall_length", on_wall_updated)
+    engine.attach("wall_length", on_wall_updated)
 
     # When a sketch constraint changes:
     engine.set_parameter("construction_line_length", "7.0")
@@ -56,15 +56,15 @@ def reset_engine() -> None:
     """Discard the current engine and create a fresh one.
 
     Primarily used when loading a new ``.blend`` file.  The
-    ``bexpeng_panel_update`` registered by the UI layer is preserved on the
+    ``ui_observer`` registered by the UI layer is preserved on the
     replacement instance.
     """
     global _engine
-    hook = _engine.bexpeng_panel_update if _engine is not None else None
+    hook = _engine.ui_observer if _engine is not None else None
     if _engine is not None:
         _engine.clear()
     _engine = ParametricEngine()
-    _engine.bexpeng_panel_update = hook
+    _engine.ui_observer = hook
 
 
 __all__ = [

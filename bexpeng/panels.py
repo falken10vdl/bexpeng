@@ -20,7 +20,9 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
             row.label(text=item.value_str)
             ref_col = row.row(align=True)
             ref_col.scale_x = 0.35
-            ref_col.label(text=str(item.ref_count) if item.ref_count > 0 else "—")
+            ref_col.label(
+                text=str(item.observer_count) if item.observer_count > 0 else "—"
+            )
             dep_col = row.row(align=True)
             dep_col.scale_x = 0.35
             dep_col.label(text=str(item.dep_count) if item.dep_count > 0 else "—")
@@ -56,7 +58,7 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
         header.label(text="Value")
         ref_h = header.row()
         ref_h.scale_x = 0.35
-        ref_h.label(text="#Sub")
+        ref_h.label(text="#Obs")
         dep_h = header.row()
         dep_h.scale_x = 0.35
         dep_h.label(text="#Dep")

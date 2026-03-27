@@ -35,7 +35,7 @@ def sync_scene_ui_list(scene):
             item.param_name,
             item.expression,
             item.value_str,
-            item.ref_count,
+            item.observer_count,
             item.dep_count,
             item.description,
         )
@@ -51,7 +51,7 @@ def sync_scene_ui_list(scene):
                 name,
                 expr,
                 value_str,
-                engine.get_ref_count(name),
+                engine.get_observer_count(name),
                 engine.get_dep_count(name),
                 descriptions.get(name, ""),
             )
@@ -71,7 +71,7 @@ def sync_scene_ui_list(scene):
         item.param_name = name
         item.expression = expressions.get(name, "0")
         item.value_str = str(value) if value is not None else "—"
-        item.ref_count = engine.get_ref_count(name)
+        item.observer_count = engine.get_observer_count(name)
         item.dep_count = engine.get_dep_count(name)
         item.description = descriptions.get(name, "")
 
@@ -120,7 +120,7 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
         engine = get_engine()
 
         # Capture before any engine call — set_parameter triggers _solve →
-        # bexpeng_panel_update → sync_scene_ui_list, which rewrites
+        # ui_observer → sync_scene_ui_list, which rewrites
         # props.edit_description from the (not-yet-updated) engine state.
         description = props.edit_description
         print(
@@ -204,12 +204,12 @@ def _ui_post_solve() -> None:
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    get_engine().bexpeng_panel_update = _ui_post_solve
+    get_engine().ui_observer = _ui_post_solve
 
 
 def unregister():
     engine = get_engine()
-    if engine.bexpeng_panel_update is _ui_post_solve:
-        engine.bexpeng_panel_update = None
+    if engine.ui_observer is _ui_post_solve:
+        engine.ui_observer = None
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

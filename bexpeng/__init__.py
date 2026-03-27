@@ -16,7 +16,7 @@ Quick start from another addon::
     engine = bexpeng.get_engine()
     engine.set_parameter("line_length", "5.0")
     engine.set_parameter("wall_length", "2 * line_length")
-    engine.subscribe("wall_length", lambda name, val: print(f"{name} = {val}"))
+    engine.attach("wall_length", lambda name, val: print(f"{name} = {val}"))
     engine.set_parameter("line_length", "10.0")   # prints: wall_length = 20.0
 """
 

@@ -42,7 +42,7 @@ class ExpressionSyntaxError(Exception):
 
 
 class ParameterStillReferencedError(Exception):
-    """Raised when remove_parameter is called while subscribers are still registered."""
+    """Raised when remove_parameter is called while observers are still attached."""
 
 
 class ParameterHasDependentsError(Exception):
@@ -65,7 +65,7 @@ class ParametricEngine:
 
     Manages named parameters, expressions that compute parameter values
     from other parameters, a dependency graph to determine evaluation
-    order, and a subscriber system for change notifications.
+    order, and an observer system for change notifications.
 
     Dependency graph convention:
         An edge ``A -> B`` means "B depends on A", i.e. A must be
@@ -77,14 +77,14 @@ class ParametricEngine:
         self._values: dict[str, Any] = {}
         self._expressions: dict[str, str] = {}
         self._descriptions: dict[str, str] = {}
-        self._subscribers: dict[str, list[Callable[[str], None]]] = {}
-        self._ref_counts: dict[str, int] = {}
+        self._observers: dict[str, list[Callable[[str], None]]] = {}
+        self._observer_counts: dict[str, int] = {}
         self._graph: nx.DiGraph = nx.DiGraph()
         self._aeval: Interpreter = Interpreter()
-        self.bexpeng_panel_update: Callable[[], None] | None = None
-        self.post_load_callbacks: list[Callable[[], None]] = []
-        """Callbacks fired after every ``load_dict`` call, in registration order.
-        Survive ``clear()`` so consumers only need to register once at addon load."""
+        self.ui_observer: Callable[[], None] | None = None
+        self._post_load_observers: list[Callable[[], None]] = []
+        """Observers fired after every ``load_dict`` call, in registration order.
+        Survive ``clear()`` so consumers only need to attach once at addon load."""
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -97,7 +97,7 @@ class ParametricEngine:
         self._aeval.symtable[name] = value
         if is_new:
             self._graph.add_node(name)
-            self._subscribers.setdefault(name, [])
+            self._observers.setdefault(name, [])
 
     def _list_parameters(self) -> dict[str, Any]:
         """Internal: return a copy of all parameter names and their current values."""
@@ -118,14 +118,14 @@ class ParametricEngine:
     def remove_parameter(self, name: str) -> None:
         """Remove a parameter.
 
-        Raises ``ParameterStillReferencedError`` if any subscriber is still registered for *name*.
+        Raises ``ParameterStillReferencedError`` if any observer is still attached for *name*.
         Raises ``ParameterHasDependentsError`` if any other parameter's expression references *name*.
         Both guards prevent silent destruction of a parameter other addons or expressions depend on.
         """
-        ref = self._ref_counts.get(name, 0)
+        ref = self._observer_counts.get(name, 0)
         if ref > 0:
             raise ParameterStillReferencedError(
-                f"Cannot remove '{name}': {ref} subscriber(s) still registered."
+                f"Cannot remove '{name}': {ref} observer(s) still attached."
             )
 
         dependents = list(self._graph.successors(name))
@@ -136,8 +136,8 @@ class ParametricEngine:
         self._descriptions.pop(name, None)
         self._values.pop(name, None)
         self._aeval.symtable.pop(name, None)
-        self._subscribers.pop(name, None)
-        self._ref_counts.pop(name, None)
+        self._observers.pop(name, None)
+        self._observer_counts.pop(name, None)
         if self._graph.has_node(name):
             self._graph.remove_node(name)
 
@@ -225,30 +225,30 @@ class ParametricEngine:
         return self._descriptions.get(name, "")
 
     # ------------------------------------------------------------------
-    # Subscribers
+    # Observers
     # ------------------------------------------------------------------
 
-    def subscribe(self, name: str, callback: Callable[[str], None]) -> None:
-        """Register a callback for when a parameter's value changes.
+    def attach(self, name: str, callback: Callable[[str], None]) -> None:
+        """Attach an observer callback for when a parameter's value changes.
 
         The callback receives only the parameter name: ``callback(name)``.
         Use ``engine.get_value(name)`` and ``engine.get_expression(name)``
         inside the callback to read the current state.
-        Increments the reference count for *name*.
+        Increments the observer count for *name*.
         """
-        self._subscribers.setdefault(name, []).append(callback)
-        self._ref_counts[name] = self._ref_counts.get(name, 0) + 1
+        self._observers.setdefault(name, []).append(callback)
+        self._observer_counts[name] = self._observer_counts.get(name, 0) + 1
 
-    def unsubscribe(self, name: str, callback: Callable[[str], None]) -> None:
-        """Remove a previously registered callback and decrement the reference count."""
-        cbs = self._subscribers.get(name, [])
+    def detach(self, name: str, callback: Callable[[str], None]) -> None:
+        """Detach a previously attached observer and decrement the observer count."""
+        cbs = self._observers.get(name, [])
         if callback in cbs:
             cbs.remove(callback)
-            self._ref_counts[name] = max(0, self._ref_counts.get(name, 1) - 1)
+            self._observer_counts[name] = max(0, self._observer_counts.get(name, 1) - 1)
 
-    def get_ref_count(self, name: str) -> int:
-        """Return how many active subscribers (Bonsai bindings) use *name*."""
-        return self._ref_counts.get(name, 0)
+    def get_observer_count(self, name: str) -> int:
+        """Return how many observers are currently attached to *name*."""
+        return self._observer_counts.get(name, 0)
 
     def get_dep_count(self, name: str) -> int:
         """Return how many parameters have expressions that reference *name*."""
@@ -289,19 +289,19 @@ class ParametricEngine:
                 self._values[node] = val
                 self._aeval.symtable[node] = val
                 if val != old_val:
-                    self._notify(node)
+                    self.notify(node)
             except Exception:
                 pass
-        if self.bexpeng_panel_update is not None:
+        if self.ui_observer is not None:
             try:
-                self.bexpeng_panel_update()
+                self.ui_observer()
             except Exception:
                 pass
 
-    def _notify(self, name: str) -> None:
-        """Call all subscribers for a parameter."""
+    def notify(self, name: str) -> None:
+        """Call all attached observers for a parameter."""
         callbacks = list(
-            self._subscribers.get(name, [])
+            self._observers.get(name, [])
         )  # copy: safe against mutation during iteration
         for cb in callbacks:
             try:
@@ -328,14 +328,14 @@ class ParametricEngine:
     def load_dict(self, data: dict) -> None:
         """Restore engine state from a dict produced by ``to_dict``.
 
-        After ``_solve()`` completes all ``post_load_callbacks`` are fired in
-        registration order so that consumers (e.g. Bonsai) can re-subscribe
+        After ``_solve()`` completes all ``_post_load_observers`` are notified in
+        registration order so that consumers (e.g. Bonsai) can re-attach
         deterministically, regardless of ``load_post`` handler ordering in
         Blender.
         """
-        # Suppress the panel refresh hook during batch reload; fire once at the end.
-        hook = self.bexpeng_panel_update
-        self.bexpeng_panel_update = None
+        # Suppress ui_observer during batch reload; fire once at the end.
+        hook = self.ui_observer
+        self.ui_observer = None
         try:
             self.clear()
             expressions = data.get("expressions", {})
@@ -354,42 +354,44 @@ class ParametricEngine:
                 self.set_description(name, desc)
             self._solve()
         finally:
-            self.bexpeng_panel_update = hook
+            self.ui_observer = hook
         if hook is not None:
             try:
                 hook()
             except Exception:
                 pass
-        for cb in list(self.post_load_callbacks):
+        for cb in list(self._post_load_observers):
             try:
                 cb()
             except Exception:
                 pass
 
-    def register_post_load(self, cb: Callable[[], None]) -> None:
-        """Register *cb* to be called after each ``load_dict`` call completes.
+    def attach_post_load(self, cb: Callable[[], None]) -> None:
+        """Attach *cb* as an observer called after each ``load_dict`` call completes.
 
-        Idempotent: registering the same callable twice has no effect.
-        Post-load callbacks survive ``clear()`` so consumers register once at
+        Idempotent: attaching the same callable twice has no effect.
+        Post-load observers survive ``clear()`` so consumers attach once at
         addon load time and are automatically notified on every file reload.
         """
-        if cb not in self.post_load_callbacks:
-            self.post_load_callbacks.append(cb)
+        if cb not in self._post_load_observers:
+            self._post_load_observers.append(cb)
 
-    def unregister_post_load(self, cb: Callable[[], None]) -> None:
-        """Remove a previously registered post-load callback."""
-        self.post_load_callbacks = [c for c in self.post_load_callbacks if c is not cb]
+    def detach_post_load(self, cb: Callable[[], None]) -> None:
+        """Detach a previously attached post-load observer."""
+        self._post_load_observers = [
+            c for c in self._post_load_observers if c is not cb
+        ]
 
     def clear(self) -> None:
-        """Remove all parameters, expressions, and subscribers.
+        """Remove all parameters, expressions, and attached observers.
 
-        ``post_load_callbacks`` are intentionally preserved — they are
+        ``_post_load_observers`` are intentionally preserved — they are
         consumer-registered hooks that must survive reloads.
         """
         self._values.clear()
         self._expressions.clear()
         self._descriptions.clear()
-        self._subscribers.clear()
-        self._ref_counts.clear()
+        self._observers.clear()
+        self._observer_counts.clear()
         self._graph.clear()
         self._aeval.symtable.clear()

@@ -36,9 +36,9 @@ class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
         description="Optional human-readable description of this parameter",
         default="",
     )
-    ref_count: bpy.props.IntProperty(
-        name="References",
-        description="Number of Bonsai bindings currently subscribed to this parameter",
+    observer_count: bpy.props.IntProperty(
+        name="Observers",
+        description="Number of observers currently attached to this parameter",
         default=0,
         min=0,
     )
