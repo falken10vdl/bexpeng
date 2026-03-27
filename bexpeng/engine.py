@@ -190,6 +190,14 @@ class ParametricEngine:
         """Return the internal ID for the parameter named *name*, or ``None``."""
         return self._name_to_id.get(name)
 
+    def get_name(self, pid: str) -> str | None:
+        """Return the current name for the parameter with internal ID *pid*, or ``None``."""
+        return self._ids.get(pid)
+
+    def get_value_by_id(self, pid: str) -> Any:
+        """Return the current evaluated value for the parameter with internal ID *pid*, or ``None``."""
+        return self._values.get(pid)
+
     def remove_parameter(self, name: str) -> None:
         """Remove a parameter.
 
