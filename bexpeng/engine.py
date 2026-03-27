@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from typing import Any, Callable, ClassVar
 
 import networkx as nx
@@ -56,6 +57,10 @@ class ParameterHasDependentsError(Exception):
         )
 
 
+class ParameterRenameError(Exception):
+    """Raised when rename_parameter fails validation."""
+
+
 class ExpressionError(Exception):
     """Raised when an expression fails to evaluate."""
 
@@ -67,6 +72,15 @@ class ParametricEngine:
     from other parameters, a dependency graph to determine evaluation
     order, and an observer system for change notifications.
 
+    Parameters have two identifiers:
+
+    - **Internal ID** (e.g. ``"bxp1"``): immutable, auto-generated, used as
+      the key in all internal dicts, the dependency graph, and the observer
+      subscription API (``attach`` / ``detach``).
+    - **Name** (e.g. ``"wall_length"``): a mutable Python identifier used in
+      expression text and displayed in the UI.  Rename via
+      ``rename_parameter``.
+
     Dependency graph convention:
         An edge ``A -> B`` means "B depends on A", i.e. A must be
         evaluated before B.  ``networkx.topological_sort`` then yields
@@ -76,13 +90,16 @@ class ParametricEngine:
     _instance: ClassVar[ParametricEngine | None] = None
 
     def __init__(self) -> None:
-        self._values: dict[str, Any] = {}
-        self._expressions: dict[str, str] = {}
-        self._descriptions: dict[str, str] = {}
-        self._observers: dict[str, list[Callable[[str], None]]] = {}
-        self._observer_counts: dict[str, int] = {}
-        self._graph: nx.DiGraph = nx.DiGraph()
-        self._aeval: Interpreter = Interpreter()
+        self._id_counter: int = 0
+        self._ids: dict[str, str] = {}  # pid → name
+        self._name_to_id: dict[str, str] = {}  # name → pid
+        self._values: dict[str, Any] = {}  # pid → value
+        self._expressions: dict[str, str] = {}  # pid → expression string
+        self._descriptions: dict[str, str] = {}  # pid → description
+        self._observers: dict[str, list[Callable[[str], None]]] = {}  # pid → callbacks
+        self._observer_counts: dict[str, int] = {}  # pid → count
+        self._graph: nx.DiGraph = nx.DiGraph()  # nodes are pids
+        self._aeval: Interpreter = Interpreter()  # symtable keyed by name
         self.ui_observer: Callable[[], None] | None = None
         self._post_load_observers: list[Callable[[], None]] = []
         """Observers fired after every ``load_dict`` call, in registration order.
@@ -122,30 +139,56 @@ class ParametricEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _register_parameter(self, name: str, value: Any = None) -> None:
-        """Internal: create or update a parameter node."""
-        is_new = name not in self._values
-        self._values[name] = value
+    def _generate_id(self) -> str:
+        """Return the next unused internal parameter ID."""
+        pid = f"bxp{self._id_counter}"
+        self._id_counter += 1
+        return pid
+
+    def _register_parameter(self, pid: str, name: str, value: Any = None) -> None:
+        """Internal: initialise storage for a new parameter keyed by *pid*."""
+        self._values[pid] = value
         self._aeval.symtable[name] = value
-        if is_new:
-            self._graph.add_node(name)
-            self._observers.setdefault(name, [])
+        self._graph.add_node(pid)
+        self._observers.setdefault(pid, [])
 
     def _list_parameters(self) -> dict[str, Any]:
-        """Internal: return a copy of all parameter names and their current values."""
-        return dict(self._values)
+        """Internal: return ``{name: value}`` for all parameters."""
+        return {self._ids[pid]: v for pid, v in self._values.items()}
 
     def _list_expressions(self) -> dict[str, str]:
-        """Internal: return a copy of all expression definitions."""
-        return dict(self._expressions)
+        """Internal: return ``{name: expression}`` for all parameters."""
+        return {self._ids[pid]: e for pid, e in self._expressions.items()}
 
     def _list_descriptions(self) -> dict[str, str]:
-        """Internal: return a copy of all parameter descriptions."""
-        return dict(self._descriptions)
+        """Internal: return ``{name: description}`` for all parameters."""
+        return {self._ids[pid]: d for pid, d in self._descriptions.items()}
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def list_parameters(self) -> list[dict]:
+        """Return a list of dicts describing all registered parameters.
+
+        Each dict has keys: ``"id"``, ``"name"``, ``"value"``,
+        ``"expression"``, ``"description"``.  The ``"id"`` value is the
+        stable internal ID to pass to ``attach`` / ``detach``.
+        """
+        return [
+            {
+                "id": pid,
+                "name": self._ids[pid],
+                "value": self._values.get(pid),
+                "expression": self._expressions.get(pid, "0"),
+                "description": self._descriptions.get(pid, ""),
+            }
+            for pid in self._ids
+        ]
+
+    def get_id(self, name: str) -> str | None:
+        """Return the internal ID for the parameter named *name*, or ``None``."""
+        return self._name_to_id.get(name)
 
     def remove_parameter(self, name: str) -> None:
         """Remove a parameter.
@@ -154,45 +197,85 @@ class ParametricEngine:
         Raises ``ParameterHasDependentsError`` if any other parameter's expression references *name*.
         Both guards prevent silent destruction of a parameter other addons or expressions depend on.
         """
-        ref = self._observer_counts.get(name, 0)
+        pid = self._name_to_id.get(name)
+        if pid is None:
+            return
+
+        ref = self._observer_counts.get(pid, 0)
         if ref > 0:
             raise ParameterStillReferencedError(
                 f"Cannot remove '{name}': {ref} observer(s) still attached."
             )
 
-        dependents = list(self._graph.successors(name))
-        if dependents:
-            raise ParameterHasDependentsError(name, dependents)
+        dependent_pids = list(self._graph.successors(pid))
+        if dependent_pids:
+            dependent_names = [self._ids[d] for d in dependent_pids]
+            raise ParameterHasDependentsError(name, dependent_names)
 
-        self._expressions.pop(name, None)
-        self._descriptions.pop(name, None)
-        self._values.pop(name, None)
+        self._expressions.pop(pid, None)
+        self._descriptions.pop(pid, None)
+        self._values.pop(pid, None)
         self._aeval.symtable.pop(name, None)
-        self._observers.pop(name, None)
-        self._observer_counts.pop(name, None)
-        if self._graph.has_node(name):
-            self._graph.remove_node(name)
+        self._observers.pop(pid, None)
+        self._observer_counts.pop(pid, None)
+        if self._graph.has_node(pid):
+            self._graph.remove_node(pid)
+        self._ids.pop(pid, None)
+        self._name_to_id.pop(name, None)
+
+    def rename_parameter(self, old_name: str, new_name: str) -> None:
+        """Rename a parameter from *old_name* to *new_name*.
+
+        Rewrites all expressions that reference *old_name* using
+        word-boundary-safe substitution so partial identifiers are never
+        clobbered.  Observers are keyed by internal ID and are completely
+        unaffected — they continue to fire; callbacks now receive *new_name*.
+
+        Raises ``ParameterRenameError`` if *new_name* is not a valid Python
+        identifier or is already in use, or if *old_name* does not exist.
+        """
+        if not new_name.isidentifier():
+            raise ParameterRenameError(f"'{new_name}' is not a valid Python identifier")
+        if new_name in self._name_to_id:
+            raise ParameterRenameError(f"Parameter '{new_name}' already exists")
+        if old_name not in self._name_to_id:
+            raise ParameterRenameError(f"Parameter '{old_name}' does not exist")
+
+        pid = self._name_to_id[old_name]
+        pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+        for epid in list(self._expressions):
+            rewritten = pattern.sub(new_name, self._expressions[epid])
+            if rewritten != self._expressions[epid]:
+                self._expressions[epid] = rewritten
+
+        self._ids[pid] = new_name
+        del self._name_to_id[old_name]
+        self._name_to_id[new_name] = pid
+
+        val = self._aeval.symtable.pop(old_name, None)
+        self._aeval.symtable[new_name] = val
+
+        self._solve(pid)
 
     def _register_expression(
-        self, name: str, expression: str, *, _defer_solve: bool = False
+        self, pid: str, expression: str, *, _defer_solve: bool = False
     ) -> None:
-        """Internal: validate, cycle-check, and bind an expression to *name*."""
+        """Internal: validate, cycle-check, and bind an expression to *pid*."""
+        name = self._ids[pid]
         valid, err = _validate_expression(expression)
         if not valid:
             raise ExpressionSyntaxError(f"Invalid expression for '{name}': {err}")
 
-        if name not in self._values:
-            self._register_parameter(name)
-
-        deps = _extract_dependencies(expression, set(self._values.keys()))
-        deps.discard(name)
+        known_names = set(self._name_to_id.keys())
+        dep_names = _extract_dependencies(expression, known_names)
+        dep_names.discard(name)
+        dep_ids = {self._name_to_id[n] for n in dep_names}
 
         test_graph = self._graph.copy()
-        old_preds = list(test_graph.predecessors(name))
-        for pred in old_preds:
-            test_graph.remove_edge(pred, name)
-        for dep in deps:
-            test_graph.add_edge(dep, name)
+        for pred in list(test_graph.predecessors(pid)):
+            test_graph.remove_edge(pred, pid)
+        for dep_pid in dep_ids:
+            test_graph.add_edge(dep_pid, pid)
 
         if not nx.is_directed_acyclic_graph(test_graph):
             raise CyclicDependencyError(
@@ -200,28 +283,24 @@ class ParametricEngine:
                 f"circular dependency."
             )
 
-        old_preds = list(self._graph.predecessors(name))
-        for pred in old_preds:
-            self._graph.remove_edge(pred, name)
-        for dep in deps:
-            if not self._graph.has_node(dep):
-                self._graph.add_node(dep)
-            self._graph.add_edge(dep, name)
+        for pred in list(self._graph.predecessors(pid)):
+            self._graph.remove_edge(pred, pid)
+        for dep_pid in dep_ids:
+            self._graph.add_edge(dep_pid, pid)
 
-        self._expressions[name] = expression
+        self._expressions[pid] = expression
         if not _defer_solve:
-            self._solve(name)
+            self._solve(pid)
 
-    def _unregister_expression(self, name: str) -> None:
-        """Internal: remove the expression for a parameter (keeps the parameter)."""
-        if name in self._expressions:
-            del self._expressions[name]
-            preds = list(self._graph.predecessors(name))
-            for pred in preds:
-                self._graph.remove_edge(pred, name)
+    def _unregister_expression(self, pid: str) -> None:
+        """Internal: remove the expression for *pid* (keeps the parameter)."""
+        if pid in self._expressions:
+            del self._expressions[pid]
+            for pred in list(self._graph.predecessors(pid)):
+                self._graph.remove_edge(pred, pid)
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API (continued)
     # ------------------------------------------------------------------
 
     def set_parameter(self, name: str, expression: str) -> None:
@@ -235,58 +314,70 @@ class ParametricEngine:
         Raises ``ExpressionSyntaxError`` for syntactically invalid expressions and
         ``CyclicDependencyError`` for circular dependencies.
         """
-        if name not in self._values:
-            self._register_parameter(name)
-        self._register_expression(name, expression)
+        if name not in self._name_to_id:
+            pid = self._generate_id()
+            self._ids[pid] = name
+            self._name_to_id[name] = pid
+            self._register_parameter(pid, name)
+        else:
+            pid = self._name_to_id[name]
+        self._register_expression(pid, expression)
 
     def get_value(self, name: str) -> Any:
         """Return the current evaluated value, or ``None`` if the parameter is unknown."""
-        return self._values.get(name)
+        pid = self._name_to_id.get(name)
+        return self._values.get(pid) if pid is not None else None
 
     def get_expression(self, name: str) -> str | None:
         """Return the expression string for *name*, or ``None`` if unknown."""
-        return self._expressions.get(name)
+        pid = self._name_to_id.get(name)
+        return self._expressions.get(pid) if pid is not None else None
 
     def set_description(self, name: str, description: str) -> None:
         """Set a human-readable description for *name*. No-op if the parameter does not exist."""
-        if name in self._values:
-            self._descriptions[name] = description
+        pid = self._name_to_id.get(name)
+        if pid is not None:
+            self._descriptions[pid] = description
 
     def get_description(self, name: str) -> str:
         """Return the description for *name*, or an empty string if unset."""
-        return self._descriptions.get(name, "")
+        pid = self._name_to_id.get(name)
+        return self._descriptions.get(pid, "") if pid is not None else ""
 
     # ------------------------------------------------------------------
-    # Observers
+    # Observers — keyed by internal ID
     # ------------------------------------------------------------------
 
-    def attach(self, name: str, callback: Callable[[str], None]) -> None:
-        """Attach an observer callback for when a parameter's value changes.
+    def attach(self, pid: str, callback: Callable[[str], None]) -> None:
+        """Attach an observer for when a parameter's value changes.
 
-        The callback receives only the parameter name: ``callback(name)``.
-        Use ``engine.get_value(name)`` and ``engine.get_expression(name)``
-        inside the callback to read the current state.
-        Increments the observer count for *name*.
+        *pid* must be the **internal ID** returned by ``get_id(name)`` or
+        ``list_parameters()``.  The callback receives the parameter's current
+        *name* as its sole argument: ``callback(name)``.
+
+        Increments the observer count for *pid*.
         """
-        self._observers.setdefault(name, []).append(callback)
-        self._observer_counts[name] = self._observer_counts.get(name, 0) + 1
+        self._observers.setdefault(pid, []).append(callback)
+        self._observer_counts[pid] = self._observer_counts.get(pid, 0) + 1
 
-    def detach(self, name: str, callback: Callable[[str], None]) -> None:
+    def detach(self, pid: str, callback: Callable[[str], None]) -> None:
         """Detach a previously attached observer and decrement the observer count."""
-        cbs = self._observers.get(name, [])
+        cbs = self._observers.get(pid, [])
         if callback in cbs:
             cbs.remove(callback)
-            self._observer_counts[name] = max(0, self._observer_counts.get(name, 1) - 1)
+            self._observer_counts[pid] = max(0, self._observer_counts.get(pid, 1) - 1)
 
     def get_observer_count(self, name: str) -> int:
         """Return how many observers are currently attached to *name*."""
-        return self._observer_counts.get(name, 0)
+        pid = self._name_to_id.get(name)
+        return self._observer_counts.get(pid, 0) if pid is not None else 0
 
     def get_dep_count(self, name: str) -> int:
         """Return how many parameters have expressions that reference *name*."""
-        if not self._graph.has_node(name):
+        pid = self._name_to_id.get(name)
+        if pid is None or not self._graph.has_node(pid):
             return 0
-        return len(list(self._graph.successors(name)))
+        return len(list(self._graph.successors(pid)))
 
     # ------------------------------------------------------------------
     # Solver (private)
@@ -295,33 +386,34 @@ class ParametricEngine:
     def _solve(self, root: str | None = None) -> None:
         """Evaluate expressions in topological order.
 
-        If *root* is given, only re-evaluates *root* and its transitive
-        dependents (parameters that directly or indirectly depend on *root*).
-        If *root* is ``None``, re-evaluates every node that has an expression.
+        *root* is an internal ID.  If given, only re-evaluates *root* and its
+        transitive dependents.  If ``None``, re-evaluates every node that has
+        an expression.
         """
         if root is not None:
             affected = {root} | nx.descendants(self._graph, root)
         else:
             affected = None  # evaluate all
-        for node in nx.topological_sort(self._graph):
-            if affected is not None and node not in affected:
+        for node_pid in nx.topological_sort(self._graph):
+            if affected is not None and node_pid not in affected:
                 continue
-            if node not in self._expressions:
+            if node_pid not in self._expressions:
                 continue
-            expr = self._expressions[node]
-            # Update interpreter symbol table with latest values
-            for dep in self._graph.predecessors(node):
-                self._aeval.symtable[dep] = self._values.get(dep)
+            expr = self._expressions[node_pid]
+            for dep_pid in self._graph.predecessors(node_pid):
+                dep_name = self._ids[dep_pid]
+                self._aeval.symtable[dep_name] = self._values.get(dep_pid)
             try:
                 val = self._aeval(expr)
                 if self._aeval.error:
                     self._aeval.error = []
                     continue
-                old_val = self._values.get(node)
-                self._values[node] = val
-                self._aeval.symtable[node] = val
+                old_val = self._values.get(node_pid)
+                self._values[node_pid] = val
+                node_name = self._ids[node_pid]
+                self._aeval.symtable[node_name] = val
                 if val != old_val:
-                    self.notify(node)
+                    self.notify(node_pid)
             except Exception:
                 pass
         if self.ui_observer is not None:
@@ -330,11 +422,10 @@ class ParametricEngine:
             except Exception:
                 pass
 
-    def notify(self, name: str) -> None:
-        """Call all attached observers for a parameter."""
-        callbacks = list(
-            self._observers.get(name, [])
-        )  # copy: safe against mutation during iteration
+    def notify(self, pid: str) -> None:
+        """Call all attached observers for the parameter identified by *pid*."""
+        name = self._ids.get(pid, pid)
+        callbacks = list(self._observers.get(pid, []))  # copy: safe against mutation
         for cb in callbacks:
             try:
                 cb(name)
@@ -348,41 +439,59 @@ class ParametricEngine:
     def to_dict(self) -> dict:
         """Serialise engine state to a plain dict (for JSON storage).
 
-        Format: ``{"expressions": {name: expression_str, ...}, "descriptions": {name: desc, ...}}``.
-        Every parameter is represented by its expression (a literal such as
-        ``"5.0"`` for direct values, or a formula like ``"2 * length"``).
+        Format includes ``"ids"`` (pid→name map) and ``"id_counter"`` so that
+        internal IDs are stable across save/load cycles.
         """
         return {
-            "expressions": dict(self._expressions),
-            "descriptions": dict(self._descriptions),
+            "ids": dict(self._ids),
+            "id_counter": self._id_counter,
+            "expressions": {
+                self._ids[pid]: expr for pid, expr in self._expressions.items()
+            },
+            "descriptions": {
+                self._ids[pid]: desc for pid, desc in self._descriptions.items()
+            },
         }
 
     def load_dict(self, data: dict) -> None:
         """Restore engine state from a dict produced by ``to_dict``.
 
-        After ``_solve()`` completes all ``_post_load_observers`` are notified in
-        registration order so that consumers (e.g. Bonsai) can re-attach
-        deterministically, regardless of ``load_post`` handler ordering in
-        Blender.
+        Handles both the current format (with ``"ids"`` / ``"id_counter"``)
+        and the legacy format (expressions keyed by name only) so that old
+        ``.blend`` files load correctly.
+
+        After ``_solve()`` completes, all ``_post_load_observers`` are notified
+        in registration order so that consumers can re-attach deterministically.
         """
         # Suppress ui_observer during batch reload; fire once at the end.
         hook = self.ui_observer
         self.ui_observer = None
         try:
             self.clear()
-            expressions = data.get("expressions", {})
+            if "ids" in data:
+                # Current format: restore stable IDs and counter.
+                self._id_counter = data.get("id_counter", 0)
+                for pid, name in data["ids"].items():
+                    self._ids[pid] = name
+                    self._name_to_id[name] = pid
+                    self._register_parameter(pid, name)
+            else:
+                # Legacy format: generate fresh IDs from expression names.
+                for name in data.get("expressions", {}):
+                    if name not in self._name_to_id:
+                        pid = self._generate_id()
+                        self._ids[pid] = name
+                        self._name_to_id[name] = pid
+                        self._register_parameter(pid, name)
 
-            for name in expressions:
-                if name not in self._values:
-                    self._register_parameter(name)
-
-            for name, expr in expressions.items():
-                try:
-                    self._register_expression(name, expr, _defer_solve=True)
-                except Exception:
-                    pass
-            descriptions = data.get("descriptions", {})
-            for name, desc in descriptions.items():
+            for name, expr in data.get("expressions", {}).items():
+                pid = self._name_to_id.get(name)
+                if pid:
+                    try:
+                        self._register_expression(pid, expr, _defer_solve=True)
+                    except Exception:
+                        pass
+            for name, desc in data.get("descriptions", {}).items():
                 self.set_description(name, desc)
             self._solve()
         finally:
@@ -420,6 +529,9 @@ class ParametricEngine:
         ``_post_load_observers`` are intentionally preserved — they are
         consumer-registered hooks that must survive reloads.
         """
+        self._id_counter = 0
+        self._ids.clear()
+        self._name_to_id.clear()
         self._values.clear()
         self._expressions.clear()
         self._descriptions.clear()

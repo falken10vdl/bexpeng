@@ -7,6 +7,7 @@ import bpy
 from .engine import (
     ExpressionSyntaxError,
     ParameterHasDependentsError,
+    ParameterRenameError,
     ParameterStillReferencedError,
     ParametricEngine,
 )
@@ -23,15 +24,11 @@ def sync_scene_ui_list(scene):
         return False
 
     engine = ParametricEngine.get_instance()
+    params = engine.list_parameters()
 
-    parameters = engine._list_parameters()
-    expressions = engine._list_expressions()
-    descriptions = engine._list_descriptions()
-
-    # Build stable snapshots so we only rebuild the Blender collection when
-    # the underlying engine state changed.
     old_snapshot = [
         (
+            item.param_id,
             item.param_name,
             item.expression,
             item.value_str,
@@ -42,44 +39,43 @@ def sync_scene_ui_list(scene):
         for item in props.expressions
     ]
 
-    new_snapshot = []
-    for name, value in parameters.items():
-        expr = expressions.get(name, "0")
-        value_str = str(value) if value is not None else "—"
-        new_snapshot.append(
-            (
-                name,
-                expr,
-                value_str,
-                engine.get_observer_count(name),
-                engine.get_dep_count(name),
-                descriptions.get(name, ""),
-            )
+    new_snapshot = [
+        (
+            p["id"],
+            p["name"],
+            p["expression"],
+            str(p["value"]) if p["value"] is not None else "—",
+            engine.get_observer_count(p["name"]),
+            engine.get_dep_count(p["name"]),
+            p["description"],
         )
+        for p in params
+    ]
 
     if old_snapshot == new_snapshot:
         return False
 
-    selected_name = None
+    # Preserve selection by internal ID (stable across renames)
+    selected_id = None
     idx = props.active_expression_index
     if 0 <= idx < len(props.expressions):
-        selected_name = props.expressions[idx].param_name
+        selected_id = props.expressions[idx].param_id
 
     props.expressions.clear()
-    for name, value in parameters.items():
+    for pid, name, expr, value_str, obs_count, dep_count, desc in new_snapshot:
         item = props.expressions.add()
+        item.param_id = pid
         item.param_name = name
-        item.expression = expressions.get(name, "0")
-        item.value_str = str(value) if value is not None else "—"
-        item.observer_count = engine.get_observer_count(name)
-        item.dep_count = engine.get_dep_count(name)
-        item.description = descriptions.get(name, "")
+        item.expression = expr
+        item.value_str = value_str
+        item.observer_count = obs_count
+        item.dep_count = dep_count
+        item.description = desc
 
-    # Keep selection and edit fields stable if possible.
     props.active_expression_index = -1
-    if selected_name is not None:
+    if selected_id is not None:
         for i, item in enumerate(props.expressions):
-            if item.param_name == selected_name:
+            if item.param_id == selected_id:
                 props.active_expression_index = i
                 break
 
@@ -96,6 +92,22 @@ def sync_scene_ui_list(scene):
 def sync_ui_list(context):
     """Synchronise the active scene UI collection with the engine state."""
     return sync_scene_ui_list(context.scene)
+
+
+class BEXPENG_OT_new_parameter(bpy.types.Operator):
+    """Clear the edit fields to enter a new parameter"""
+
+    bl_idname = "bexpeng.new_parameter"
+    bl_label = "New Parameter"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        props.edit_name = ""
+        props.edit_expression = "0"
+        props.edit_description = ""
+        props.active_expression_index = -1
+        return {"FINISHED"}
 
 
 class BEXPENG_OT_save_edit(bpy.types.Operator):
@@ -123,9 +135,22 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
         # ui_observer → sync_scene_ui_list, which rewrites
         # props.edit_description from the (not-yet-updated) engine state.
         description = props.edit_description
-        print(
-            f"[bexpeng] save_edit: name={name!r} expr={value_str!r} description={description!r}"
-        )
+
+        # Determine the currently selected parameter (may differ from edit_name)
+        selected_id = None
+        selected_name = None
+        idx = props.active_expression_index
+        if 0 <= idx < len(props.expressions):
+            selected_id = props.expressions[idx].param_id
+            selected_name = props.expressions[idx].param_name
+
+        # Rename if the name field was changed on an existing parameter
+        if selected_id is not None and selected_name != name:
+            try:
+                engine.rename_parameter(selected_name, name)
+            except ParameterRenameError as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
 
         try:
             engine.set_parameter(name, value_str or "0")
@@ -136,27 +161,18 @@ class BEXPENG_OT_save_edit(bpy.types.Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
 
-        print(
-            f"[bexpeng] after set_parameter: props.edit_description={props.edit_description!r}"
-        )
-        print(f"[bexpeng] calling engine.set_description({name!r}, {description!r})")
         engine.set_description(name, description)
-        print(
-            f"[bexpeng] engine.get_description({name!r}) = {engine.get_description(name)!r}"
-        )
 
         sync_ui_list(context)
 
-        print(
-            f"[bexpeng] after sync_ui_list: props.edit_description={props.edit_description!r}"
-        )
-
-        # Select the saved parameter
-        for i, item in enumerate(props.expressions):
-            if item.param_name == name:
-                props.active_expression_index = i
-                print(f"[bexpeng] item.description after sync = {item.description!r}")
-                break
+        # Re-select by internal ID (stable, even after rename)
+        target_id = engine.get_id(name)
+        props.active_expression_index = -1
+        if target_id is not None:
+            for i, item in enumerate(props.expressions):
+                if item.param_id == target_id:
+                    props.active_expression_index = i
+                    break
 
         return {"FINISHED"}
 
@@ -190,6 +206,7 @@ class BEXPENG_OT_remove_parameter(bpy.types.Operator):
 
 
 classes = (
+    BEXPENG_OT_new_parameter,
     BEXPENG_OT_save_edit,
     BEXPENG_OT_remove_parameter,
 )

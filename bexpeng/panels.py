@@ -3,6 +3,7 @@
 """UI panel for the Blender Expression Engine."""
 
 import bpy
+from natsort import natsorted
 
 
 class BEXPENG_UL_expression_list(bpy.types.UIList):
@@ -29,6 +30,13 @@ class BEXPENG_UL_expression_list(bpy.types.UIList):
         elif self.layout_type == "GRID":
             layout.alignment = "CENTER"
             layout.label(text=item.param_name)
+
+    def filter_items(self, context, data, propname):
+        items = getattr(data, propname)
+        n = len(items)
+        flt_flags = [self.bitflag_filter_item] * n
+        sorted_names = natsorted(range(n), key=lambda i: items[i].param_name)
+        return flt_flags, sorted_names
 
 
 class BEXPENG_PT_main_panel(bpy.types.Panel):
@@ -78,6 +86,7 @@ class BEXPENG_PT_main_panel(bpy.types.Panel):
         )
 
         # Buttons aligned to the top of the right column
+        btn_col.operator("bexpeng.new_parameter", icon="ADD", text="")
         btn_col.operator("bexpeng.remove_parameter", icon="REMOVE", text="")
         # Edit / add entry — always visible at the bottom
         box = layout.box()

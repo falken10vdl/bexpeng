@@ -18,6 +18,10 @@ def _on_active_index_changed(self, context):
 class BEXPENG_ExpressionItem(bpy.types.PropertyGroup):
     """A single expression entry shown in the UI list."""
 
+    param_id: bpy.props.StringProperty(
+        name="Internal ID",
+        description="Immutable internal identifier (e.g. bxp0). Use this to attach observers.",
+    )
     param_name: bpy.props.StringProperty(
         name="Parameter",
         description="Name of the parameter",

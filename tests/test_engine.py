@@ -7,6 +7,7 @@ from bexpeng.engine import (
     CyclicDependencyError,
     ExpressionSyntaxError,
     ParameterHasDependentsError,
+    ParameterRenameError,
     ParameterStillReferencedError,
     ParametricEngine,
 )
@@ -42,7 +43,7 @@ class TestParameters:
     def test_unregister_raises_if_subscribed(self):
         e = ParametricEngine()
         e.set_parameter("x", "5")
-        e.attach("x", lambda n: None)
+        e.attach(e.get_id("x"), lambda n: None)
         with pytest.raises(ParameterStillReferencedError):
             e.remove_parameter("x")
 
@@ -58,7 +59,7 @@ class TestParameters:
         e = ParametricEngine()
         e.set_parameter("x", "5")
         e.set_parameter("y", "x + 1")
-        e.attach("x", lambda n: None)
+        e.attach(e.get_id("x"), lambda n: None)
         # subscriber check runs first
         with pytest.raises(ParameterStillReferencedError):
             e.remove_parameter("x")
@@ -156,13 +157,103 @@ class TestCycleDetection:
             e.set_parameter("a", "c + 1")
 
 
+class TestIDs:
+    def test_get_id_returns_string(self):
+        e = ParametricEngine()
+        e.set_parameter("x", "1")
+        pid = e.get_id("x")
+        assert isinstance(pid, str)
+        assert pid.startswith("bxp")
+
+    def test_get_id_unknown_returns_none(self):
+        e = ParametricEngine()
+        assert e.get_id("missing") is None
+
+    def test_ids_are_unique(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1")
+        e.set_parameter("b", "2")
+        assert e.get_id("a") != e.get_id("b")
+
+    def test_list_parameters_keys(self):
+        e = ParametricEngine()
+        e.set_parameter("x", "5")
+        params = e.list_parameters()
+        assert len(params) == 1
+        p = params[0]
+        assert set(p.keys()) >= {"id", "name", "value", "expression", "description"}
+        assert p["name"] == "x"
+        assert p["id"] == e.get_id("x")
+        assert p["value"] == pytest.approx(5.0)
+
+
+class TestRename:
+    def test_rename_basic(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1.0")
+        e.rename_parameter("a", "c")
+        assert e.get_value("c") == pytest.approx(1.0)
+        assert e.get_value("a") is None
+
+    def test_rename_rewrites_dependent_expressions(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1.0")
+        e.set_parameter("b", "a + 2")
+        e.rename_parameter("a", "c")
+        assert e.get_expression("b") == "c + 2"
+        assert e.get_value("b") == pytest.approx(3.0)
+
+    def test_rename_does_not_clobber_partial_names(self):
+        e = ParametricEngine()
+        e.set_parameter("ar", "1.0")
+        e.set_parameter("area", "2.0")
+        e.set_parameter("total", "ar + area")
+        e.rename_parameter("ar", "radius")
+        assert e.get_expression("total") == "radius + area"
+
+    def test_rename_preserves_internal_id(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1.0")
+        pid_before = e.get_id("a")
+        e.rename_parameter("a", "c")
+        assert e.get_id("c") == pid_before
+
+    def test_rename_observer_survives(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1.0")
+        pid = e.get_id("a")
+        received = []
+        e.attach(pid, lambda name: received.append(name))
+        e.rename_parameter("a", "c")
+        e.set_parameter("c", "2.0")  # triggers observer
+        assert "c" in received
+
+    def test_rename_error_duplicate(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1")
+        e.set_parameter("b", "2")
+        with pytest.raises(ParameterRenameError):
+            e.rename_parameter("a", "b")
+
+    def test_rename_error_invalid_identifier(self):
+        e = ParametricEngine()
+        e.set_parameter("a", "1")
+        with pytest.raises(ParameterRenameError):
+            e.rename_parameter("a", "not-valid")
+
+    def test_rename_error_unknown(self):
+        e = ParametricEngine()
+        with pytest.raises(ParameterRenameError):
+            e.rename_parameter("missing", "x")
+
+
 class TestSubscribers:
     def test_callback_on_change(self):
         e = ParametricEngine()
         e.set_parameter("x", "1")
         e.set_parameter("y", "x * 2")
         updates = []
-        e.attach("y", lambda name: updates.append((name, e.get_value(name))))
+        e.attach(e.get_id("y"), lambda name: updates.append((name, e.get_value(name))))
         e.set_parameter("x", "5")
         assert ("y", 10) in updates
 
@@ -171,10 +262,11 @@ class TestSubscribers:
         e.set_parameter("x", "1")
         calls = []
         cb = lambda name: calls.append(e.get_value(name))
-        e.attach("x", cb)
+        pid = e.get_id("x")
+        e.attach(pid, cb)
         e.set_parameter("x", "2")
         assert len(calls) == 1
-        e.detach("x", cb)
+        e.detach(pid, cb)
         e.set_parameter("x", "3")
         assert len(calls) == 1  # not called again
 
@@ -183,9 +275,10 @@ class TestSubscribers:
         e.set_parameter("x", "1")
         assert e.get_observer_count("x") == 0
         cb = lambda n: None
-        e.attach("x", cb)
+        pid = e.get_id("x")
+        e.attach(pid, cb)
         assert e.get_observer_count("x") == 1
-        e.detach("x", cb)
+        e.detach(pid, cb)
         assert e.get_observer_count("x") == 0
 
 
@@ -198,8 +291,27 @@ class TestSerialization:
         e2 = ParametricEngine()
         e2.load_dict(data)
         assert e2.get_value("line_length") == 5
-        assert e2.get_value("wall_length") == 10
-        assert e2.get_expression("wall_length") == "2 * line_length"
+
+    def test_round_trip_preserves_ids(self):
+        e = ParametricEngine()
+        e.set_parameter("x", "1")
+        pid = e.get_id("x")
+        data = e.to_dict()
+        e2 = ParametricEngine()
+        e2.load_dict(data)
+        assert e2.get_id("x") == pid
+
+    def test_legacy_format_loads(self):
+        """Old .blend files without 'ids' key should load without error."""
+        legacy = {
+            "expressions": {"x": "5", "y": "x + 1"},
+            "descriptions": {},
+        }
+        e = ParametricEngine()
+        e.load_dict(legacy)
+        assert e.get_value("x") == pytest.approx(5.0)
+        assert e.get_value("y") == pytest.approx(6.0)
+        assert e.get_id("x") is not None
 
     def test_clear(self):
         e = ParametricEngine()

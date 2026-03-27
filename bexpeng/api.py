@@ -19,6 +19,7 @@ from .engine import (
     CyclicDependencyError,
     ExpressionSyntaxError,
     ParameterHasDependentsError,
+    ParameterRenameError,
     ParameterStillReferencedError,
     ParametricEngine,
 )
@@ -29,4 +30,5 @@ __all__ = [
     "ExpressionSyntaxError",
     "ParameterStillReferencedError",
     "ParameterHasDependentsError",
+    "ParameterRenameError",
 ]
