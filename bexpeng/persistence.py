@@ -16,25 +16,31 @@ from bpy.app.handlers import persistent
 from .engine import ParametricEngine
 
 _PROP_KEY = "bexpeng_data"
+_GROUP_PROP_KEY = "bexpeng_groups"
 
 
 @persistent
 def _save_handler(dummy) -> None:
-    """``save_pre`` handler — persist engine state into the scene."""
+    """``save_pre`` handler — persist engine and group state into the scene."""
+    from .groups import GroupManager
+
     engine = ParametricEngine.get_instance()
     data = engine.to_dict()
-    # Store in the active scene (or first scene as fallback)
+    group_data = GroupManager.get_instance().to_dict()
     target_scene = bpy.context.scene if bpy.context.scene else bpy.data.scenes[0]
     if target_scene:
         target_scene[_PROP_KEY] = json.dumps(data)
+        target_scene[_GROUP_PROP_KEY] = json.dumps(group_data)
 
 
 @persistent
 def _load_handler(dummy) -> None:
-    """``load_post`` handler — restore engine state from the scene, then sync the UI."""
-    from .operators import sync_scene_ui_list
+    """``load_post`` handler — restore engine and group state, then sync the UI."""
+    from .groups import GroupManager
+    from .operators import sync_group_ui_list, sync_scene_ui_list
 
     engine = ParametricEngine.get_instance()
+    gm = GroupManager.get_instance()
 
     raw = None
     for scene in bpy.data.scenes:
@@ -51,11 +57,26 @@ def _load_handler(dummy) -> None:
     else:
         engine.clear()
 
-    # Sync the Blender UI collection to reflect the (now authoritative) engine
-    # state.  Without this, props.expressions retains stale rows from the
-    # previous session and the panel appears correct until the first Refresh.
+    # Load group data
+    group_raw = None
+    for scene in bpy.data.scenes:
+        group_raw = scene.get(_GROUP_PROP_KEY)
+        if group_raw is not None:
+            break
+
+    if group_raw is not None:
+        try:
+            group_data = json.loads(group_raw)
+            gm.load_dict(group_data)
+        except Exception:
+            gm.clear()
+    else:
+        gm.clear()
+
+    # Sync the Blender UI collections to reflect the (now authoritative) state.
     for scene in bpy.data.scenes:
         sync_scene_ui_list(scene)
+        sync_group_ui_list(scene)
 
 
 def register():

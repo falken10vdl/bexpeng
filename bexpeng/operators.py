@@ -11,6 +11,7 @@ from .engine import (
     ParameterStillReferencedError,
     ParametricEngine,
 )
+from .groups import GroupManager, ROOT_GROUP_ID
 
 
 def sync_scene_ui_list(scene):
@@ -92,6 +93,88 @@ def sync_scene_ui_list(scene):
 def sync_ui_list(context):
     """Synchronise the active scene UI collection with the engine state."""
     return sync_scene_ui_list(context.scene)
+
+
+def sync_group_ui_list(scene):
+    """Synchronise the groups UI collection in *scene* with the GroupManager.
+
+    Builds a flat, DFS-ordered list from ``GroupManager.list_groups()``, honouring
+    each group's ``is_expanded`` flag so that collapsed sub-trees are hidden.
+    Returns ``True`` when the collection changed.
+    """
+    props = getattr(scene, "bexpeng", None)
+    if props is None:
+        return False
+
+    gm = GroupManager.get_instance()
+    all_groups = gm.list_groups()  # DFS order, with tree_depth / has_children
+
+    # Capture current UI state keyed by group_id so it survives a full rebuild.
+    expanded_state = {item.group_id: item.is_expanded for item in props.groups}
+    selected_state = {item.group_id: item.selected for item in props.groups}
+
+    # Build the visible list: skip rows whose ancestor is collapsed.
+    collapsed_ids: set = set()
+    visible = []
+    for g in all_groups:
+        if g["parent_id"] in collapsed_ids:
+            collapsed_ids.add(g["id"])
+            continue
+        visible.append(g)
+        if not expanded_state.get(g["id"], True):
+            collapsed_ids.add(g["id"])
+
+    # Early-exit when nothing changed.
+    old_snapshot = [
+        (
+            item.group_id,
+            item.name,
+            item.tree_depth,
+            item.has_children,
+            item.is_expanded,
+            item.selected,
+        )
+        for item in props.groups
+    ]
+    new_snapshot = [
+        (
+            g["id"],
+            g["name"],
+            g["tree_depth"],
+            g["has_children"],
+            expanded_state.get(g["id"], True),
+            selected_state.get(g["id"], False),
+        )
+        for g in visible
+    ]
+    if old_snapshot == new_snapshot:
+        return False
+
+    # Preserve the active group across the rebuild.
+    active_id = None
+    idx = props.active_group_index
+    if 0 <= idx < len(props.groups):
+        active_id = props.groups[idx].group_id
+
+    props.groups.clear()
+    for g in visible:
+        item = props.groups.add()
+        item.group_id = g["id"]  # set before name so the update callback is safe
+        item.name = g["name"]  # fires _on_group_name_changed (idempotent no-op)
+        item.parent_id = g["parent_id"]
+        item.tree_depth = g["tree_depth"]
+        item.has_children = g["has_children"]
+        item.is_expanded = expanded_state.get(g["id"], True)
+        item.selected = selected_state.get(g["id"], False)
+
+    props.active_group_index = -1
+    if active_id is not None:
+        for i, item in enumerate(props.groups):
+            if item.group_id == active_id:
+                props.active_group_index = i
+                break
+
+    return True
 
 
 class BEXPENG_OT_new_parameter(bpy.types.Operator):
@@ -190,7 +273,9 @@ class BEXPENG_OT_remove_parameter(bpy.types.Operator):
         if idx < 0 or idx >= len(props.expressions):
             self.report({"WARNING"}, "No parameter selected")
             return {"CANCELLED"}
-        name = props.expressions[idx].param_name
+        item = props.expressions[idx]
+        name = item.param_name
+        param_id = item.param_id
         engine = ParametricEngine.get_instance()
         try:
             engine.remove_parameter(name)
@@ -200,8 +285,188 @@ class BEXPENG_OT_remove_parameter(bpy.types.Operator):
         except ParameterHasDependentsError as exc:
             self.report({"WARNING"}, str(exc))
             return {"CANCELLED"}
+        GroupManager.get_instance().remove_param_from_all_groups(param_id)
         sync_ui_list(context)
         props.active_expression_index = min(idx, len(props.expressions) - 1)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_add_group(bpy.types.Operator):
+    """Add a new group (child of the active group, or a root group if none is active)"""
+
+    bl_idname = "bexpeng.add_group"
+    bl_label = "Add Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        gm = GroupManager.get_instance()
+        parent_id = ""
+        idx = props.active_group_index
+        if 0 <= idx < len(props.groups):
+            parent_id = props.groups[idx].group_id
+        gm.add_group("Group", parent_id)
+        sync_group_ui_list(context.scene)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_remove_group(bpy.types.Operator):
+    """Remove the active group (parameters are kept; children are promoted to its parent)"""
+
+    bl_idname = "bexpeng.remove_group"
+    bl_label = "Remove Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        idx = props.active_group_index
+        if idx < 0 or idx >= len(props.groups):
+            self.report({"WARNING"}, "No group selected")
+            return {"CANCELLED"}
+        group_id = props.groups[idx].group_id
+        try:
+            GroupManager.get_instance().remove_group(group_id)
+        except (KeyError, ValueError) as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
+        sync_group_ui_list(context.scene)
+        props.active_group_index = min(idx, len(props.groups) - 1)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_toggle_group_expand(bpy.types.Operator):
+    """Expand or collapse a group in the tree"""
+
+    bl_idname = "bexpeng.toggle_group_expand"
+    bl_label = "Toggle Group Expand"
+
+    group_id: bpy.props.StringProperty()
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        for item in props.groups:
+            if item.group_id == self.group_id:
+                item.is_expanded = not item.is_expanded
+                break
+        sync_group_ui_list(context.scene)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_assign_params(bpy.types.Operator):
+    """Assign checked parameters to every checked group"""
+
+    bl_idname = "bexpeng.assign_params"
+    bl_label = "Assign"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        group_ids = [item.group_id for item in props.groups if item.selected]
+        param_ids = [item.param_id for item in props.expressions if item.selected]
+        if not group_ids:
+            self.report({"WARNING"}, "No groups checked")
+            return {"CANCELLED"}
+        if not param_ids:
+            self.report({"WARNING"}, "No parameters checked")
+            return {"CANCELLED"}
+        GroupManager.get_instance().assign(group_ids, param_ids)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_deassign_params(bpy.types.Operator):
+    """Remove checked parameters from every checked group"""
+
+    bl_idname = "bexpeng.deassign_params"
+    bl_label = "Deassign"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.bexpeng
+        group_ids = [item.group_id for item in props.groups if item.selected]
+        param_ids = [item.param_id for item in props.expressions if item.selected]
+        if not group_ids:
+            self.report({"WARNING"}, "No groups checked")
+            return {"CANCELLED"}
+        if not param_ids:
+            self.report({"WARNING"}, "No parameters checked")
+            return {"CANCELLED"}
+        GroupManager.get_instance().deassign(group_ids, param_ids)
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_select_all_params(bpy.types.Operator):
+    """Select / deselect all parameters in Area 2.\n\nAlt-click to invert the current selection instead"""
+
+    bl_idname = "bexpeng.select_all_params"
+    bl_label = "Select All Parameters"
+    bl_options = {"REGISTER", "UNDO"}
+
+    action: bpy.props.EnumProperty(
+        items=[
+            (
+                "TOGGLE",
+                "Toggle",
+                "Select all, or deselect all if all are already selected",
+            ),
+            ("INVERT", "Invert", "Invert the current selection"),
+        ],
+        default="TOGGLE",
+    )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.action = "INVERT"
+        else:
+            self.action = "TOGGLE"
+        return self.execute(context)
+
+    def execute(self, context):
+        items = context.scene.bexpeng.expressions
+        if self.action == "INVERT":
+            for item in items:
+                item.selected = not item.selected
+        else:  # TOGGLE
+            all_selected = all(item.selected for item in items)
+            for item in items:
+                item.selected = not all_selected
+        return {"FINISHED"}
+
+
+class BEXPENG_OT_select_all_groups(bpy.types.Operator):
+    """Select / deselect all groups in Area 1.\n\nAlt-click to invert the current selection instead"""
+
+    bl_idname = "bexpeng.select_all_groups"
+    bl_label = "Select All Groups"
+    bl_options = {"REGISTER", "UNDO"}
+
+    action: bpy.props.EnumProperty(
+        items=[
+            (
+                "TOGGLE",
+                "Toggle",
+                "Select all, or deselect all if all are already selected",
+            ),
+            ("INVERT", "Invert", "Invert the current selection"),
+        ],
+        default="TOGGLE",
+    )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.action = "INVERT"
+        else:
+            self.action = "TOGGLE"
+        return self.execute(context)
+
+    def execute(self, context):
+        items = context.scene.bexpeng.groups
+        if self.action == "INVERT":
+            for item in items:
+                item.selected = not item.selected
+        else:  # TOGGLE
+            all_selected = all(item.selected for item in items)
+            for item in items:
+                item.selected = not all_selected
         return {"FINISHED"}
 
 
@@ -209,6 +474,13 @@ classes = (
     BEXPENG_OT_new_parameter,
     BEXPENG_OT_save_edit,
     BEXPENG_OT_remove_parameter,
+    BEXPENG_OT_add_group,
+    BEXPENG_OT_remove_group,
+    BEXPENG_OT_toggle_group_expand,
+    BEXPENG_OT_assign_params,
+    BEXPENG_OT_deassign_params,
+    BEXPENG_OT_select_all_params,
+    BEXPENG_OT_select_all_groups,
 )
 
 
