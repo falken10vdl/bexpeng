@@ -16,14 +16,15 @@ Quick start from another addon::
     engine = ParametricEngine.get_instance()
     engine.set_parameter("line_length", "5.0")
     engine.set_parameter("wall_length", "2 * line_length")
-    engine.attach("wall_length", lambda name: print(f"{name} = {engine.get_value(name)}"))
+    pid = engine.get_id("wall_length")
+    engine.attach(pid, lambda name: print(f"{name} = {engine.get_value(name)}"))
     engine.set_parameter("line_length", "10.0")   # prints: wall_length = 20.0
 """
 
 bl_info = {
     "name": "BExpEng — Blender Expression Engine",
     "author": "bexpeng contributors",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > BExpEng",
     "description": "Parametric expression engine for cross-addon parameter linking",
